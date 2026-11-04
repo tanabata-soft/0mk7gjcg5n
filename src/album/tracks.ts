@@ -5,4 +5,5 @@ import type { TrackMeta } from '../logic';
 export const TRACKS: TrackMeta[] = [
   { src: '京葉線の午後', title: '京葉線の午後', genre: 'Seaside Pop', time: '3:00', note: '京葉線に揺られてキミを待つ午後。魔法の言葉が奇跡を起こす表題曲。' },
   { src: '千葉の海に溶けてゆく', title: '千葉の海に溶けてゆく', genre: 'Seafoam Ballad', time: '2:37', note: '九十九里の波に消える恋の記憶。泡のような想いを歌うバラード。' },
+  { src: '繋いだ手と朱い夜', title: '繋いだ手と朱い夜', genre: 'Festival Pop', time: '2:36', bonus: true, note: '夏祭りの夜、花火の朱い光のなかで繋いだ手。魔法の言葉が導いた、隠しトラック。' },
 ];
