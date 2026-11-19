@@ -135,6 +135,7 @@ END_MARGIN_S = 1.2  # 最後のノーツは曲終了のこれ以上前に置く
 HARD_CAP = 820  # hard の総ノーツ数の上限（安全弁。パターン＋同時押し＋長押し込み）
 NORMAL_CAP = 410  # normal の総ノーツ数の上限（8分の骨格を強さ順に間引く）
 EASY_CAP = 210  # easy の総ノーツ数の上限（拍位置のみを強さ順に間引く）
+FEVER_GAP_FILL_S = 2.9  # FEVER 区間でこの秒数を超える空白は、間引きで落ちた候補を戻して埋める
 SNAP_WINDOW_MS = 38  # オンセットピークへ寄せる範囲（遠いピークは別のリズム事象なので寄せない）
 SNAP_MIN_GAP_MS = 100  # スナップ後に許す同一レーンの最小間隔
 LANE_MIN_SHARE = 0.18  # レーン分布の下限（単体テストでも検証）
@@ -650,19 +651,26 @@ class Realizer:
         return note
 
     def run_penalty(self, lanes, subs, pattern_name):
-        """全難易度の部分列で同一レーン3連続を作る候補への罰金（縦連だけ例外）。"""
-        if pattern_name == "jack":
-            return 0.0
+        """全難易度の部分列で同一レーン連続を作る候補への罰金。
+
+        通常パターンは3連続から罰金にする。jack（縦連）はパターン自体が
+        同一レーン3連なので3連までは罰金にしないが、直前のノーツとつながって
+        4連以上になる候補は罰金にする。無罰金のままだと、サビの連呼セクション
+        のように jack が連続する場所で同じレーンに寄り続け、生成後の修復
+        （repair_runs）が連の真ん中を落とし続けて長い空白ができるため
+        （NK-S003 keiyo 第1サビで easy 7.0秒の空白になった実例）。
+        """
         pen = 0.0
+        limit = 4 if pattern_name == "jack" else 3
         for level in ("h", "n", "e"):
-            seq = list(self.level_last[level][-2:])
+            seq = list(self.level_last[level][-(limit - 1) :])
             for lane, sub in zip(lanes, subs):
                 if level == "n" and sub % 2 == 1:
                     continue
                 if level == "e" and sub != 0:
                     continue
                 seq.append(lane)
-                if len(seq) >= 3 and seq[-1] == seq[-2] == seq[-3]:
+                if len(seq) >= limit and all(x == lane for x in seq[-limit:]):
                     pen += 60.0
         return pen
 
@@ -1428,6 +1436,69 @@ def process_song(song_id, meta, y, sr):
                         break
         return {n["id"] for n in kept}
 
+    def fill_fever_gaps(ids, pool, cap, min_gap):
+        """FEVER 区間の空白が FEVER_GAP_FILL_S を超えたら、落ちた候補を戻す。
+
+        thin は上限まで拾い切るため、難易度の空白は主に生成後の修復
+        （repair_runs 等）がノーツを落として作る。オンセットの弱いサビの
+        一帯では、候補が残っていても下位難易度だけ長い空白になることがある
+        （NK-S003 keiyo 第2サビ easy で 3.5秒になった実例）。そのため修復の
+        後に呼ぶ。候補は確定した上位難易度の集合の中にあるものだけに限る
+        ので入れ子は保たれる。戻す候補は空白の中央寄りを優先し、レーン割合が
+        検証範囲（0.18〜0.32）の内側に収まるものだけにする。
+        """
+        ids = set(ids)
+        pool = [notes_by_id[i] for i in pool if i not in ids]
+        for f0, f1 in fever:
+            lo_ms, hi_ms = int(f0 * 1000), int(f1 * 1000)
+            for _ in range(20):
+                if len(ids) >= cap:
+                    break
+                kept_notes = sorted((notes_by_id[i] for i in ids), key=lambda n: n["time_ms"])
+                kept = [n["time_ms"] for n in kept_notes]
+                inside = [t for t in kept if lo_ms <= t < hi_ms]
+                pts = [lo_ms] + inside + [hi_ms]
+                worst = None
+                for a, b in zip(pts, pts[1:]):
+                    if worst is None or b - a > worst[1] - worst[0]:
+                        worst = (a, b)
+                if worst is None or worst[1] - worst[0] <= FEVER_GAP_FILL_S * 1000:
+                    break
+                a, b = worst
+                mid = (a + b) / 2
+                prev_note = max((n for n in kept_notes if n["time_ms"] <= a), key=lambda n: n["time_ms"], default=None)
+                next_note = min((n for n in kept_notes if n["time_ms"] >= b), key=lambda n: n["time_ms"], default=None)
+                total = len(ids)
+                lane_counts = [sum(1 for n in kept_notes if n["lane"] == l) for l in range(4)]
+                cands = []
+                for n in pool:
+                    t = n["time_ms"]
+                    if not (a < t < b):
+                        continue
+                    if any(t != k and abs(t - k) < min_gap for k in kept):
+                        continue
+                    shares = [
+                        (lane_counts[l] + (1 if l == n["lane"] else 0)) / (total + 1) for l in range(4)
+                    ]
+                    if max(shares) > 0.30 or min(shares) < 0.185:
+                        continue
+                    # 前後が同じレーンだと、戻した途端に同一レーン3連になる
+                    if (
+                        prev_note is not None
+                        and next_note is not None
+                        and prev_note["lane"] == n["lane"] == next_note["lane"]
+                    ):
+                        continue
+                    cands.append((abs(t - mid), -n["strength"], n))
+                if not cands:
+                    break
+                cands.sort(key=lambda c: (c[0], c[1]))
+                chosen = cands[0][2]
+                ids.add(chosen["id"])
+                pool.remove(chosen)
+        return ids
+
+    normal_pool = set(normal_ids)
     normal_ids = thin(normal_ids, NORMAL_CAP, 150)
     easy_ids = {i for i in normal_ids if notes_by_id[i]["sub"] == 0 and notes_by_id[i]["kind"] != "chord"}
     easy_ids = thin(easy_ids, EASY_CAP, 260)
@@ -1442,6 +1513,17 @@ def process_song(song_id, meta, y, sr):
             break
     else:
         raise AssertionError(f"{song_id}: 修復が収束しない")
+
+    # FEVER 区間の空白の埋め戻し（修復で落ちた分だけ上限に余裕がある。
+    # 候補は確定した上位難易度の集合の中にあるものだけ＝入れ子を保つ）
+    id_sets["hard"] = fill_fever_gaps(id_sets["hard"], set(notes_by_id), HARD_CAP, 150)
+    id_sets["normal"] = fill_fever_gaps(id_sets["normal"], normal_pool & id_sets["hard"], NORMAL_CAP, 150)
+    easy_pool = {
+        i
+        for i in id_sets["normal"]
+        if notes_by_id[i]["sub"] == 0 and notes_by_id[i]["kind"] != "chord"
+    }
+    id_sets["easy"] = fill_fever_gaps(id_sets["easy"], easy_pool, EASY_CAP, 260)
 
     def final_notes(diff, ids):
         seq = sorted((notes_by_id[i] for i in ids), key=lambda n: (n["time_ms"], n["lane"]))
