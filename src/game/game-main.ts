@@ -1,0 +1,617 @@
+// 音ゲーモードの配線（リズムゲームエンジンの src/main.ts を移植したもの）。
+// CD 側の殻（画面遷移・インストール・更新バナー・起動復旧）は src/main.ts が担うので、
+// ここにはゲーム固有の配線だけを置く。初期化は遅延させ、CD 側の main.ts が
+// 「遊ぶ」ボタンで最初に音ゲー画面を開くときに enterGameMode() を呼ぶ。
+// テスト用の入口は、CD 側の getState / setState と上書きし合わないよう
+// getGameState / setGameState の名前で出す。
+
+import './game.css';
+import {
+DIFFICULTIES,
+clampOffset,
+isFullCombo,
+type ComboAppearance,
+type Difficulty,
+type LatencyStats,
+type SongId,
+} from './logic';
+import { LatencyCheck } from './latency';
+import { SONGS, songById, type SongEntry } from './charts';
+import { FULLCOMBO_IMAGE_URL, FULLCOMBO_VOICE_URL, comboPatternDef } from './presentation';
+import { Game, type GameResult } from './game';
+import { exposeTestApi, setData } from '../debug';
+import { isSoundOn, playFullComboVoice, preloadFullComboVoice, preloadHitSample, setSound } from './sound';
+import { isVibrateOn, setVibrate } from './haptics';
+import { audioState, isUnlocked, unlockAudio } from './audio';
+import { load, migrateStorage, requestPersist, save } from './storage';
+
+function initGameMode(): { enter: () => void } {
+
+  const $ = <T extends HTMLElement>(id: string): T => {
+    const el = document.getElementById(id);
+    if (!el) throw new Error(`#${id} not found`);
+    return el as T;
+  };
+
+  migrateStorage();
+
+  // ---- 選択と記録 ----
+  let selectedSong: SongId = load<SongId>('song', SONGS[0].id);
+  if (!SONGS.some((s) => s.id === selectedSong)) selectedSong = SONGS[0].id;
+  let selectedDiff: Difficulty = load<Difficulty>('difficulty', 'easy');
+  if (!(selectedDiff in DIFFICULTIES)) selectedDiff = 'easy';
+  let offsetMs = clampOffset(load<number>('offset', 0));
+  let lyricsOn = load<boolean>('lyrics', true);
+  // デバッグモード（設定モーダル内のユーザー向け設定。?debug=1 のテスト用入口や5回タップのパネルとは別物）。
+  // オンにしたときだけオートプレイのトグルを出す
+  let debugModeOn = load<boolean>('debugMode', false);
+  let autoplayOn = load<boolean>('autoplay', false);
+  type BestMap = Record<string, number>;
+  const bestKey = (song: SongId, diff: Difficulty): string => `${song}:${diff}`;
+  const loadBests = (): BestMap => load<BestMap>('best', {});
+  const bestOf = (song: SongId, diff: Difficulty): number => loadBests()[bestKey(song, diff)] ?? 0;
+
+  // ---- 画面の出し分け ----
+  type Screen = 'menu' | 'game' | 'result';
+  let screen: Screen = 'menu';
+  function show(next: Screen): void {
+    screen = next;
+    $('menu-screen').hidden = next !== 'menu';
+    $('game-screen').hidden = next !== 'game';
+    $('result-screen').hidden = next !== 'result';
+    setData('screen', next);
+  }
+
+  // ---- メニューの組み立て（曲選択カルーセル） ----
+  // ジャケットを主役にした左右スワイプ式（v1.9.3）。ビューポートは横スクロール＋
+  // スクロールスナップで、中央に来たスライドが選択中の曲になる。スライドの
+  // ジャケットは縦長の切り抜きで、絵の中の曲タイトルができるだけ収まる位置を
+  // 曲ごとに CSS（.carousel-slide[data-song] img）で指定する。
+  const carouselViewport = $<HTMLDivElement>('carousel-viewport');
+  const carouselTrack = $<HTMLDivElement>('carousel-track');
+  const carouselDots = $<HTMLDivElement>('carousel-dots');
+  const slides = new Map<SongId, HTMLButtonElement>();
+  const dotButtons = new Map<SongId, HTMLButtonElement>();
+  const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
+
+  for (const entry of SONGS) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'carousel-slide';
+    b.dataset.song = entry.id;
+    b.setAttribute('aria-label', entry.data.title);
+    const img = document.createElement('img');
+    img.src = entry.jacketUrl;
+    img.alt = '';
+    img.draggable = false;
+    const overlay = document.createElement('span');
+    overlay.className = 'slide-overlay';
+    const title = document.createElement('span');
+    title.className = 'slide-title';
+    title.textContent = entry.data.title;
+    const chips = document.createElement('span');
+    chips.className = 'slide-chips';
+    const album = document.createElement('span');
+    album.className = 'chip slide-album';
+    album.textContent = entry.album;
+    const bpm = document.createElement('span');
+    bpm.className = 'chip';
+    bpm.textContent = `BPM ${Math.round(entry.data.bpm)}`;
+    const sec = Math.round(entry.data.durationMs / 1000);
+    const len = document.createElement('span');
+    len.className = 'chip';
+    len.textContent = `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}`;
+    chips.append(album, bpm, len);
+    overlay.append(title, chips);
+    b.append(img, overlay);
+    b.addEventListener('click', () => selectSong(entry.id, true));
+    carouselTrack.append(b);
+    slides.set(entry.id, b);
+
+    const d = document.createElement('button');
+    d.type = 'button';
+    d.className = 'carousel-dot';
+    d.dataset.song = entry.id;
+    d.setAttribute('aria-label', `${entry.data.title}を選ぶ`);
+    d.addEventListener('click', () => selectSong(entry.id, true));
+    carouselDots.append(d);
+    dotButtons.set(entry.id, d);
+  }
+
+  const slideIndex = (id: SongId): number => SONGS.findIndex((s) => s.id === id);
+
+  /** スライドをビューポートの中央へスクロールする */
+  function scrollToSong(id: SongId, smooth: boolean): void {
+    const slide = slides.get(id);
+    if (!slide) return;
+    const left = slide.offsetLeft - (carouselViewport.clientWidth - slide.clientWidth) / 2;
+    carouselViewport.scrollTo({ left, behavior: smooth && !reduceMotion.matches ? 'smooth' : 'auto' });
+  }
+
+  /** 曲を選ぶ。選択の保存と表示の更新をして、必要なら中央へスクロールする */
+  function selectSong(id: SongId, scroll: boolean): void {
+    if (!SONGS.some((s) => s.id === id)) return;
+    selectedSong = id;
+    save('song', selectedSong);
+    renderMenu();
+    if (scroll) scrollToSong(id, true);
+  }
+
+  function stepSong(dir: number): void {
+    const i = Math.min(SONGS.length - 1, Math.max(0, slideIndex(selectedSong) + dir));
+    selectSong(SONGS[i].id, true);
+  }
+  $('carousel-prev').addEventListener('click', () => stepSong(-1));
+  $('carousel-next').addEventListener('click', () => stepSong(1));
+
+  // スワイプ（スクロール）が落ち着いたら、中央のスライドを選択中の曲に合わせる
+  let scrollSettleTimer = 0;
+  carouselViewport.addEventListener(
+    'scroll',
+    () => {
+      window.clearTimeout(scrollSettleTimer);
+      scrollSettleTimer = window.setTimeout(() => {
+        const center = carouselViewport.scrollLeft + carouselViewport.clientWidth / 2;
+        let best = selectedSong;
+        let bestDist = Infinity;
+        for (const entry of SONGS) {
+          const slide = slides.get(entry.id);
+          if (!slide) continue;
+          const d = Math.abs(slide.offsetLeft + slide.clientWidth / 2 - center);
+          if (d < bestDist) {
+            bestDist = d;
+            best = entry.id;
+          }
+        }
+        if (best !== selectedSong) {
+          selectedSong = best;
+          save('song', selectedSong);
+          renderMenu();
+        }
+      }, 120);
+    },
+    { passive: true },
+  );
+
+  const diffButtons = [...document.querySelectorAll<HTMLButtonElement>('#diff-row [data-diff]')];
+  for (const b of diffButtons) {
+    b.addEventListener('click', () => {
+      selectedDiff = b.dataset.diff as Difficulty;
+      save('difficulty', selectedDiff);
+      renderMenu();
+    });
+  }
+
+  function renderToggle(id: string, on: boolean): void {
+    const button = $(id);
+    button.setAttribute('aria-pressed', String(on));
+    const state = button.querySelector('.toggle-state');
+    if (state) state.textContent = on ? 'オン' : 'オフ';
+  }
+
+  function renderMenu(): void {
+    for (const [id, b] of slides) {
+      b.setAttribute('aria-pressed', String(id === selectedSong));
+      b.dataset.active = String(id === selectedSong);
+    }
+    for (const [id, d] of dotButtons) {
+      if (id === selectedSong) d.setAttribute('aria-current', 'true');
+      else d.removeAttribute('aria-current');
+    }
+    $<HTMLButtonElement>('carousel-prev').disabled = slideIndex(selectedSong) <= 0;
+    $<HTMLButtonElement>('carousel-next').disabled = slideIndex(selectedSong) >= SONGS.length - 1;
+    for (const b of diffButtons) b.setAttribute('aria-pressed', String(b.dataset.diff === selectedDiff));
+    $('menu-best').textContent = String(bestOf(selectedSong, selectedDiff));
+    $('offset-value').textContent = `${offsetMs > 0 ? '+' : ''}${offsetMs}ms`;
+    renderToggle('sound-button', isSoundOn());
+    renderToggle('vibrate-button', isVibrateOn());
+    renderToggle('lyrics-button', lyricsOn);
+    renderToggle('debug-button', debugModeOn);
+    renderToggle('autoplay-button', autoplayOn);
+    $('autoplay-block').hidden = !debugModeOn;
+    $('lyrics').hidden = !lyricsOn;
+    setData('song', selectedSong);
+    setData('difficulty', selectedDiff);
+    setData('offset', offsetMs);
+    setData('sound', isSoundOn() ? 'on' : 'off');
+    setData('vibrate', isVibrateOn() ? 'on' : 'off');
+    setData('lyrics', lyricsOn ? 'on' : 'off');
+    setData('debugMode', debugModeOn ? 'on' : 'off');
+    setData('autoplay', autoplayOn ? 'on' : 'off');
+  }
+
+  function setOffset(next: number): void {
+    offsetMs = clampOffset(next);
+    save('offset', offsetMs);
+    renderMenu();
+  }
+  $('offset-minus').addEventListener('click', () => setOffset(offsetMs - 10));
+  $('offset-plus').addEventListener('click', () => setOffset(offsetMs + 10));
+  $('sound-button').addEventListener('click', () => {
+    setSound(!isSoundOn());
+    renderMenu();
+  });
+  $('vibrate-button').addEventListener('click', () => {
+    setVibrate(!isVibrateOn());
+    renderMenu();
+  });
+  $('lyrics-button').addEventListener('click', () => {
+    lyricsOn = !lyricsOn;
+    save('lyrics', lyricsOn);
+    renderMenu();
+  });
+  $('debug-button').addEventListener('click', () => {
+    debugModeOn = !debugModeOn;
+    save('debugMode', debugModeOn);
+    renderMenu();
+  });
+  $('autoplay-button').addEventListener('click', () => {
+    autoplayOn = !autoplayOn;
+    save('autoplay', autoplayOn);
+    renderMenu();
+  });
+
+  // ---- 設定モーダル ----
+  const settingsDialog = $<HTMLDialogElement>('settings-dialog');
+  function openSettings(): void {
+    renderMenu();
+    if (!settingsDialog.open) {
+      settingsDialog.showModal();
+      // 開いている間は背面のスクロールを止める（閉じたら 'close' イベントで戻す）
+      document.body.classList.add('dialog-open');
+    }
+  }
+  function closeSettings(): void {
+    if (settingsDialog.open) settingsDialog.close();
+  }
+  $('settings-open').addEventListener('click', openSettings);
+  $('settings-close').addEventListener('click', closeSettings);
+  $('settings-close-bottom').addEventListener('click', closeSettings);
+  settingsDialog.addEventListener('click', (e) => {
+    // 背景（ダイアログ自身の余白部分）のタップで閉じる
+    if (e.target === settingsDialog) closeSettings();
+  });
+  settingsDialog.addEventListener('close', () => {
+    document.body.classList.remove('dialog-open');
+  });
+
+  // ---- 遅延チェック（設定モーダルから開く。拍に合わせてタップし、ずれを測る） ----
+  const latencyDialog = $<HTMLDialogElement>('latency-dialog');
+  type LatencyUi = 'idle' | 'running' | 'done';
+  let latencyUi: LatencyUi = 'idle';
+  let latencyResult: LatencyStats | null = null;
+  const latencyCheck = new LatencyCheck({
+    onBeat: () => {
+      const flash = $('latency-flash');
+      flash.classList.add('on');
+      window.setTimeout(() => flash.classList.remove('on'), 140);
+    },
+    onProgress: (taps, needed) => {
+      if (latencyUi === 'running') $('latency-status').textContent = `タップ ${taps} / ${needed}`;
+    },
+    onFinish: (stats) => {
+      latencyResult = stats;
+      latencyUi = 'done';
+      renderLatency();
+    },
+  });
+
+  function renderLatency(): void {
+    setData('latency', latencyUi);
+    const start = $<HTMLButtonElement>('latency-start');
+    const tap = $<HTMLButtonElement>('latency-tap');
+    if (latencyUi === 'idle') {
+      $('latency-status').textContent = '「スタート」を押すと拍が流れます';
+      $('latency-result').hidden = true;
+      tap.disabled = true;
+      start.disabled = false;
+      start.textContent = 'スタート';
+    } else if (latencyUi === 'running') {
+      $('latency-result').hidden = true;
+      tap.disabled = false;
+      start.disabled = true;
+    } else {
+      if (latencyResult) {
+        const mean = Math.round(latencyResult.meanMs);
+        $('latency-mean').textContent = `${mean > 0 ? '+' : ''}${mean}ms`;
+        $('latency-std').textContent = String(Math.round(latencyResult.stddevMs));
+      }
+      $('latency-status').textContent = '計測が終わりました';
+      $('latency-result').hidden = false;
+      tap.disabled = true;
+      start.disabled = false;
+      start.textContent = 'もう一度測る';
+    }
+  }
+
+  function openLatency(): void {
+    latencyCheck.stop();
+    latencyUi = 'idle';
+    latencyResult = null;
+    renderLatency();
+    if (!latencyDialog.open) latencyDialog.showModal();
+  }
+  function closeLatency(): void {
+    latencyCheck.stop();
+    if (latencyDialog.open) latencyDialog.close();
+  }
+  $('latency-open').addEventListener('click', openLatency);
+  $('latency-close').addEventListener('click', closeLatency);
+  $('latency-cancel').addEventListener('click', closeLatency);
+  latencyDialog.addEventListener('close', () => {
+    // Esc・✕・「やめる」で閉じた場合も、計測を止めて何も反映しない
+    latencyCheck.stop();
+    latencyUi = 'idle';
+    latencyResult = null;
+    renderLatency();
+  });
+  $('latency-start').addEventListener('click', () => {
+    unlockAudio();
+    latencyUi = 'running';
+    latencyResult = null;
+    renderLatency();
+    latencyCheck.start();
+  });
+  // タップは pointerdown で受ける（click より遅延が小さい。ゲーム本体の入力と同じ方式）
+  $('latency-tap').addEventListener('pointerdown', () => latencyCheck.tap());
+  $('latency-apply').addEventListener('click', () => {
+    if (!latencyResult) return;
+    // 符号は logic.ts の遅延チェックの約束どおり: 拍より遅れてタップした量（+）を
+    // そのままオフセットにする（ノーツの判定時刻が後ろへずれて、遅れを打ち消せる）
+    setOffset(Math.round(latencyResult.meanMs));
+    closeLatency();
+  });
+  renderLatency();
+
+  // ---- コンボ演出の登場（30コンボごと）と歌詞表示 ----
+  // 絵は game.ts が Canvas の背景として描く。ここではセリフとコンボ数の表示だけを担当する。
+  // セリフは素材スロット（src/presentation.ts）のパターン定義から引く。
+  /** パターンごとのセリフのローテーション位置 */
+  const comboLineIndexes = new Map<string, number>();
+  let comboHideTimer = 0;
+
+  /**
+   * 登場の滞在時間（ms）。CSS のフェード（combo-fade）と game.ts の背景の滞在時間
+   * （COMBO_BG_DURATION_SEC）と合わせる
+   * （フェードイン 0.9秒 → キープ → フェードアウト 0.8秒）:
+   * 通常は約3.7秒（キープ約2秒）、big は約4.4秒（キープ約2.7秒）。
+   */
+  const COMBO_SHOW_MS = 3700;
+  const COMBO_SHOW_BIG_MS = 4400;
+
+  function showComboShow(combo: number, appearance: ComboAppearance): void {
+    const pop = $('combo-pop');
+    const { pattern, zoom, big } = appearance;
+    const lines = comboPatternDef(pattern)?.lines ?? [];
+    if (lines.length > 0) {
+      const idx = comboLineIndexes.get(pattern) ?? 0;
+      $('combo-line').textContent = lines[idx % lines.length];
+      comboLineIndexes.set(pattern, idx + 1);
+    } else {
+      $('combo-line').textContent = '';
+    }
+    $('combo-num').textContent = String(combo);
+    pop.dataset.pattern = pattern;
+    pop.dataset.zoom = zoom;
+    pop.classList.toggle('big', big);
+    // フェードを最初から再生する
+    pop.classList.remove('show');
+    pop.hidden = false;
+    void pop.offsetWidth;
+    pop.classList.add('show');
+    window.clearTimeout(comboHideTimer);
+    comboHideTimer = window.setTimeout(() => {
+      pop.hidden = true;
+      pop.classList.remove('show');
+    }, big ? COMBO_SHOW_BIG_MS : COMBO_SHOW_MS);
+  }
+
+  /** 歌詞の3行（前／今／次）を出す。今の行が変わるたびに game から呼ばれる */
+  function showLyric(index: number): void {
+    const lines = lastEntry.lyrics;
+    const cur = $('lyric-current');
+    const text = index >= 0 ? (lines[index]?.text ?? '') : '';
+    $('lyric-prev').textContent = index > 0 ? lines[index - 1].text : '';
+    cur.textContent = text;
+    $('lyric-next').textContent = index >= 0 && index + 1 < lines.length ? lines[index + 1].text : '';
+    if (text) {
+      cur.classList.remove('pop');
+      void cur.offsetWidth;
+      cur.classList.add('pop');
+    }
+  }
+
+  // ---- フルコンボ演出（演奏の締め。結果画面の前に挟む） ----
+  /**
+   * 演出の滞在時間（ms）。ボイス（約1.6秒）＋余韻で 2.8 秒。
+   * CSS の fullcombo-fade / fullcombo-zoom（どちらも 2.8 秒）と合わせる。
+   */
+  const FULLCOMBO_SHOW_MS = 2800;
+  let fullComboTimer = 0;
+  /** 演出のあとに結果画面へ渡す、保留中の結果 */
+  let pendingResult: GameResult | null = null;
+  // 絵は素材スロット（presentation.ts の FULLCOMBO_IMAGE_URL）。未設定なら絵なしで出す
+  {
+    const img = $<HTMLImageElement>('fullcombo-img');
+    if (FULLCOMBO_IMAGE_URL) img.src = FULLCOMBO_IMAGE_URL;
+    else img.hidden = true;
+  }
+
+  function showFullCombo(result: GameResult): void {
+    pendingResult = result;
+    const el = $('fullcombo');
+    $('fullcombo-combo').textContent = String(result.maxCombo);
+    $('game-live').textContent = `フルコンボ！ ${result.maxCombo}コンボ`;
+    setData('fullcombo', 'show');
+    // フェードと文字の弾けを最初から再生する
+    el.classList.remove('show');
+    el.hidden = false;
+    void el.offsetWidth;
+    el.classList.add('show');
+    // ボイスを設定してあれば、表示と同期して鳴らす（効果音設定には従わない。sound.ts 参照）
+    void playFullComboVoice(FULLCOMBO_VOICE_URL);
+    window.clearTimeout(fullComboTimer);
+    fullComboTimer = window.setTimeout(endFullCombo, FULLCOMBO_SHOW_MS);
+  }
+
+  /** 演出を終えて（時間切れ or タップでスキップ）、保留中の結果画面へ進む */
+  function endFullCombo(): void {
+    window.clearTimeout(fullComboTimer);
+    const el = $('fullcombo');
+    if (el.hidden) return;
+    el.hidden = true;
+    el.classList.remove('show');
+    setData('fullcombo', 'hide');
+    const result = pendingResult;
+    pendingResult = null;
+    if (result) showResult(result);
+  }
+  // タップで演出をスキップして結果へ進める
+  $('fullcombo').addEventListener('pointerdown', endFullCombo);
+
+  // ---- ゲーム ----
+  const game = new Game($<HTMLCanvasElement>('game-canvas'), {
+    onFinish: (result) => {
+      // フルコンボ（ミス0）のときだけ、結果画面の前に締めの演出を挟む。
+      // 通常クリアは従来どおり結果画面へ直行する。オートプレイは常時フルコンボに
+      // なるが、演出は通常演奏と同じに出す（結果の保存ルールは showResult 側で不変）
+      if (isFullCombo(result.counts)) showFullCombo(result);
+      else showResult(result);
+    },
+    onAbort: () => {
+      show('menu');
+      renderMenu();
+    },
+    onComboShow: (combo, appearance) => showComboShow(combo, appearance),
+    onLyric: (index) => showLyric(index),
+  });
+
+  let lastEntry: SongEntry = songById(selectedSong);
+  let lastDiff: Difficulty = selectedDiff;
+
+  async function startGame(): Promise<void> {
+    // スタートボタンのタップ（ジェスチャ）の中で、await より先に音声を unlock する（iPhone 対策）
+    unlockAudio();
+    // フルコンボ演出のボイスを先読みしておく（演奏の締めで読み込み待ちにならないように）
+    preloadFullComboVoice(FULLCOMBO_VOICE_URL);
+    // ヒット音のサンプル素材も先読みしておく（最初のヒットで読み込み待ちにならないように）
+    preloadHitSample();
+    const entry = songById(selectedSong);
+    lastEntry = entry;
+    lastDiff = selectedDiff;
+    const status = $('start-status');
+    const startButton = $<HTMLButtonElement>('start-button');
+    startButton.disabled = true;
+    status.textContent = '読み込み中…';
+    try {
+      show('game');
+      // オートプレイはデバッグモードがオンのときだけ効く
+      await game.start(entry, selectedDiff, offsetMs, debugModeOn && autoplayOn);
+      status.textContent = '';
+    } catch {
+      show('menu');
+      status.textContent = '音の読み込みに失敗しました。ページを開き直してください。';
+    } finally {
+      startButton.disabled = false;
+    }
+  }
+  $('start-button').addEventListener('click', () => void startGame());
+
+  function showResult(result: GameResult): void {
+    const bests = loadBests();
+    const key = bestKey(lastEntry.id, lastDiff);
+    // オートプレイの結果はベストスコアに残さない（表示は保存済みのベストのまま）
+    const best = result.autoplay ? (bests[key] ?? 0) : Math.max(bests[key] ?? 0, result.score);
+    if (!result.autoplay) {
+      bests[key] = best;
+      save('best', bests);
+    }
+    $('result-rank').textContent = result.rank;
+    $('result-autoplay').hidden = !result.autoplay;
+    $('result-song').textContent = `${result.songTitle}（${DIFFICULTIES[lastDiff].label}）`;
+    $('result-score').textContent = String(result.score);
+    $('result-best').textContent = String(best);
+    $('result-counts').textContent = `PERFECT ${result.counts.perfect} / GREAT ${result.counts.great} / GOOD ${result.counts.good} / MISS ${result.counts.miss}`;
+    $('result-accuracy').textContent = result.accuracy.toFixed(1);
+    $('result-combo').textContent = String(result.maxCombo);
+    $('game-live').textContent = `結果: ランク${result.rank}、スコア${result.score}、精度${result.accuracy.toFixed(1)}%${result.autoplay ? '（オートプレイ）' : ''}`;
+    show('result');
+    renderMenu();
+  }
+  $('again-button').addEventListener('click', () => {
+    selectedSong = lastEntry.id;
+    selectedDiff = lastDiff;
+    void startGame();
+  });
+  $('back-button').addEventListener('click', () => {
+    show('menu');
+    renderMenu();
+  });
+
+  // 初回のタップで音声を unlock する（iPhone ではジェスチャの中で AudioContext を起こす必要がある）
+  window.addEventListener('pointerdown', () => unlockAudio());
+
+  exposeTestApi({
+    getGameState: () => ({
+      screen,
+      song: selectedSong,
+      difficulty: selectedDiff,
+      offset: offsetMs,
+      playing: game.isPlaying,
+      songMs: game.songPositionMs(),
+      sound: isSoundOn(),
+      vibrate: isVibrateOn(),
+      lyrics: lyricsOn,
+      debugMode: debugModeOn,
+      autoplay: autoplayOn,
+      latency: latencyUi,
+      gameAutoplay: game.isAutoplay,
+      audioUnlocked: isUnlocked(),
+      audioState: audioState(),
+    }),
+    setGameState: (patch: Record<string, unknown>) => {
+      if (typeof patch.song === 'string' && SONGS.some((s) => s.id === patch.song)) {
+        selectedSong = patch.song as SongId;
+        scrollToSong(selectedSong, false);
+      }
+      if (typeof patch.difficulty === 'string' && patch.difficulty in DIFFICULTIES) selectedDiff = patch.difficulty as Difficulty;
+      if (typeof patch.offset === 'number') offsetMs = clampOffset(patch.offset);
+      if (typeof patch.lyrics === 'boolean') {
+        lyricsOn = patch.lyrics;
+        save('lyrics', lyricsOn);
+      }
+      if (typeof patch.debugMode === 'boolean') {
+        debugModeOn = patch.debugMode;
+        save('debugMode', debugModeOn);
+      }
+      if (typeof patch.autoplay === 'boolean') {
+        autoplayOn = patch.autoplay;
+        save('autoplay', autoplayOn);
+      }
+      renderMenu();
+    },
+    startGame: () => startGame(),
+    // 撮影・E2E 用: プレイ中なら、いまの成績で結果へ進む（デバッグパネルの「結果へ」と同じ）
+    finishNow: () => game.finishNow(),
+    // 撮影・E2E 用: プレイ中のコンボ数を直接セットする（コンボ連動エフェクトの確認用）
+    setCombo: (n: unknown) => {
+      if (typeof n === 'number') game.debugSetCombo(n);
+    },
+  });
+  requestPersist();
+
+  // 音ゲー画面へ入るたびに、メニュー画面から始める
+  function enter(): void {
+    show('menu');
+    renderMenu();
+    scrollToSong(selectedSong, false);
+  }
+  return { enter };
+}
+let gameMode: { enter: () => void } | null = null;
+
+/** 音ゲーモードへ入る（初回は初期化し、毎回メニュー画面から始める） */
+export function enterGameMode(): void {
+  gameMode ??= initGameMode();
+  gameMode.enter();
+}

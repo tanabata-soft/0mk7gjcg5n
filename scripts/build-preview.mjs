@@ -14,6 +14,8 @@ const { version, name: appId } = JSON.parse(readFileSync('package.json', 'utf8')
 // プレビュー用に 96kbps へ再エンコードした音源へ差し替える（本番の音質には影響しない）。
 // ffmpeg が無い環境では、元の音源のまま埋め込む（プレビューが大きくなるだけ）。
 const AUDIO_CACHE = join('node_modules', '.cache', 'kiso-preview-audio');
+// 音ゲーモードの音源（src/game/assets/*.mp3）も、同じ考え方で 96kbps へ再エンコードして差し替える
+const GAME_AUDIO_CACHE = join('node_modules', '.cache', 'keiyo-game-preview-audio');
 try {
   execFileSync('ffmpeg', ['-version'], { stdio: 'ignore' });
   const { mkdirSync } = await import('node:fs');
@@ -22,6 +24,13 @@ try {
     const out = join(AUDIO_CACHE, f);
     if (!existsSync(out)) {
       execFileSync('ffmpeg', ['-y', '-v', 'error', '-i', join('src', 'album', 'assets', 'audio', f), '-vn', '-c:a', 'aac', '-b:a', '96k', out]);
+    }
+  }
+  mkdirSync(GAME_AUDIO_CACHE, { recursive: true });
+  for (const f of readdirSync(join('src', 'game', 'assets')).filter((f) => f.endsWith('.mp3'))) {
+    const out = join(GAME_AUDIO_CACHE, f);
+    if (!existsSync(out)) {
+      execFileSync('ffmpeg', ['-y', '-v', 'error', '-i', join('src', 'game', 'assets', f), '-vn', '-c:a', 'libmp3lame', '-b:a', '96k', out]);
     }
   }
 } catch {
@@ -52,9 +61,16 @@ await build({
       enforce: 'pre',
       resolveId: (id) => {
         const clean = id.split('?')[0];
-        if (!clean.endsWith('.mp4')) return null;
-        const swapped = join(process.cwd(), AUDIO_CACHE, basename(clean));
-        return existsSync(swapped) ? swapped : null;
+        if (clean.endsWith('.mp4')) {
+          const swapped = join(process.cwd(), AUDIO_CACHE, basename(clean));
+          return existsSync(swapped) ? swapped : null;
+        }
+        // 音ゲーモードの音源（src/game/assets の MP3）もプレビュー用に差し替える
+        if (clean.endsWith('.mp3') && clean.includes('/game/assets/')) {
+          const swapped = join(process.cwd(), GAME_AUDIO_CACHE, basename(clean));
+          return existsSync(swapped) ? swapped : null;
+        }
+        return null;
       },
     },
   ],
