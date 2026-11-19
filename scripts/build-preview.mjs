@@ -14,7 +14,7 @@ const { version, name: appId } = JSON.parse(readFileSync('package.json', 'utf8')
 // プレビュー用に 96kbps へ再エンコードした音源へ差し替える（本番の音質には影響しない）。
 // ffmpeg が無い環境では、元の音源のまま埋め込む（プレビューが大きくなるだけ）。
 const AUDIO_CACHE = join('node_modules', '.cache', 'kiso-preview-audio');
-// 音ゲーモードの音源（src/game/assets/*.mp3）も、同じ考え方で 96kbps へ再エンコードして差し替える
+// リズムゲームの音源（src/game/assets/*.mp3）も、同じ考え方で 96kbps へ再エンコードして差し替える
 const GAME_AUDIO_CACHE = join('node_modules', '.cache', 'keiyo-game-preview-audio');
 try {
   execFileSync('ffmpeg', ['-version'], { stdio: 'ignore' });
@@ -65,7 +65,7 @@ await build({
           const swapped = join(process.cwd(), AUDIO_CACHE, basename(clean));
           return existsSync(swapped) ? swapped : null;
         }
-        // 音ゲーモードの音源（src/game/assets の MP3）もプレビュー用に差し替える
+        // リズムゲームの音源（src/game/assets の MP3）もプレビュー用に差し替える
         if (clean.endsWith('.mp3') && clean.includes('/game/assets/')) {
           const swapped = join(process.cwd(), GAME_AUDIO_CACHE, basename(clean));
           return existsSync(swapped) ? swapped : null;

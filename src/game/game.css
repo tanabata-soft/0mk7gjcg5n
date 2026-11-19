@@ -1,4 +1,4 @@
-/* 音ゲーモードのスタイル。リズムゲームエンジン（mmishina-art/rhythm-game-engine v1.0.0）の
+/* リズムゲームのスタイル。リズムゲームエンジン（mmishina-art/rhythm-game-engine v1.0.0）の
    src/style.css を、NK-S003 のアプリ内に同居させるため機械的に変換したもの:
    - 全セレクタを #view-game 配下にスコープ（:root の変数は #view-game に移設）
    - @keyframes 名には -g 接尾辞を付けて CD 側と衝突させない
@@ -72,16 +72,18 @@
   text-shadow: 0 0 10px rgb(57 208 255 / 0.7);
 }
 
-/* メニュー下部のフッター（設定・インストール案内・バージョンをまとめる） */#view-game .menu-footer {
+/* メニュー下部のフッター（設定と「戻る」を横並びにする） */#view-game .menu-footer {
+  display: flex;
+  gap: 10px;
   margin-top: 28px;
 }
 
-/* 設定ボタン（メニュー下部のフッター）。横幅のある控えめなボタンにして、ファーストビューの主役にしない */#view-game .settings-open {
+/* 設定・戻るボタン（メニュー下部のフッター）。横幅のある控えめなボタンにして、ファーストビューの主役にしない */#view-game .settings-open {
   display: flex;
+  flex: 1 1 0;
   align-items: center;
   justify-content: center;
   gap: 6px;
-  width: 100%;
   margin: 0;
   padding: 10px 16px;
   min-height: 48px;
@@ -878,7 +880,7 @@
 }
 
 /* ---------- NK-S003 側の追加（同居のための調整） ---------- */
-/* .view（CD 側）は height: 100dvh の flex。音ゲー画面は中をスクロールさせる */
+/* .view（CD 側）は height: 100dvh の flex。リズムゲーム画面は中をスクロールさせる */
 #view-game {
   overflow-y: auto;
   background:
@@ -888,30 +890,10 @@
   font-family: system-ui, -apple-system, 'Hiragino Sans', 'Noto Sans JP', sans-serif;
 }
 
-/* .game-main の上余白は .game-top 側で安全領域ぶんを取るので、エンジン側の
-   --safe-top 込みの指定を上書きして二重に空かないようにする */
+/* 上部の戻る導線は置かない（トップへはメニュー下部の「戻る」ボタン）ので、
+   .game-main の上余白で安全領域ぶんを取る */
 #view-game .game-main {
-  padding-top: 4px;
-}
-
-/* 音ゲー画面の上部: トップへ戻る導線（他の画面の .bar と同じ背丈感にする） */
-#view-game .game-top {
-  width: 100%;
-  max-width: 480px;
-  margin: 0 auto;
-  padding: max(10px, env(safe-area-inset-top)) 16px 0;
-}
-#view-game .game-back {
-  min-height: 44px;
-  min-width: 44px;
-  margin: 0;
-  padding: 8px 4px;
-  border: none;
-  background: none;
-  color: var(--text);
-  font-size: 15px;
-  letter-spacing: 0.06em;
-  cursor: pointer;
+  padding-top: max(14px, env(safe-area-inset-top));
 }
 
 /* 設定モーダルを開いている間は、背面のスクロールを止める（エンジン側の body ルールの移植） */

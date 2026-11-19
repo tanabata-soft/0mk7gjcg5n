@@ -1,7 +1,7 @@
-// 音ゲーモードの配線（リズムゲームエンジンの src/main.ts を移植したもの）。
+// リズムゲームの配線（リズムゲームエンジンの src/main.ts を移植したもの）。
 // CD 側の殻（画面遷移・インストール・更新バナー・起動復旧）は src/main.ts が担うので、
 // ここにはゲーム固有の配線だけを置く。初期化は遅延させ、CD 側の main.ts が
-// 「遊ぶ」ボタンで最初に音ゲー画面を開くときに enterGameMode() を呼ぶ。
+// 「遊ぶ」ボタンで最初にリズムゲーム画面を開くときに enterGameMode() を呼ぶ。
 // テスト用の入口は、CD 側の getState / setState と上書きし合わないよう
 // getGameState / setGameState の名前で出す。
 
@@ -20,7 +20,7 @@ import { SONGS, songById, type SongEntry } from './charts';
 import { FULLCOMBO_IMAGE_URL, FULLCOMBO_VOICE_URL, comboPatternDef } from './presentation';
 import { Game, type GameResult } from './game';
 import { exposeTestApi, setData } from '../debug';
-import { isSoundOn, playFullComboVoice, preloadFullComboVoice, preloadHitSample, setSound } from './sound';
+import { isSoundOn, playFullComboVoice, playUiClick, preloadFullComboVoice, preloadHitSample, setSound } from './sound';
 import { isVibrateOn, setVibrate } from './haptics';
 import { audioState, isUnlocked, unlockAudio } from './audio';
 import { load, migrateStorage, requestPersist, save } from './storage';
@@ -131,9 +131,11 @@ function initGameMode(): { enter: () => void } {
   /** 曲を選ぶ。選択の保存と表示の更新をして、必要なら中央へスクロールする */
   function selectSong(id: SongId, scroll: boolean): void {
     if (!SONGS.some((s) => s.id === id)) return;
+    const changed = id !== selectedSong;
     selectedSong = id;
     save('song', selectedSong);
     renderMenu();
+    if (changed) playUiClick();
     if (scroll) scrollToSong(id, true);
   }
 
@@ -167,6 +169,7 @@ function initGameMode(): { enter: () => void } {
           selectedSong = best;
           save('song', selectedSong);
           renderMenu();
+          playUiClick();
         }
       }, 120);
     },
@@ -176,9 +179,12 @@ function initGameMode(): { enter: () => void } {
   const diffButtons = [...document.querySelectorAll<HTMLButtonElement>('#diff-row [data-diff]')];
   for (const b of diffButtons) {
     b.addEventListener('click', () => {
-      selectedDiff = b.dataset.diff as Difficulty;
+      const next = b.dataset.diff as Difficulty;
+      if (next === selectedDiff) return;
+      selectedDiff = next;
       save('difficulty', selectedDiff);
       renderMenu();
+      playUiClick();
     });
   }
 
@@ -221,34 +227,42 @@ function initGameMode(): { enter: () => void } {
   }
 
   function setOffset(next: number): void {
-    offsetMs = clampOffset(next);
+    const clamped = clampOffset(next);
+    if (clamped === offsetMs) return;
+    offsetMs = clamped;
     save('offset', offsetMs);
     renderMenu();
+    playUiClick();
   }
   $('offset-minus').addEventListener('click', () => setOffset(offsetMs - 10));
   $('offset-plus').addEventListener('click', () => setOffset(offsetMs + 10));
   $('sound-button').addEventListener('click', () => {
     setSound(!isSoundOn());
     renderMenu();
+    playUiClick();
   });
   $('vibrate-button').addEventListener('click', () => {
     setVibrate(!isVibrateOn());
     renderMenu();
+    playUiClick();
   });
   $('lyrics-button').addEventListener('click', () => {
     lyricsOn = !lyricsOn;
     save('lyrics', lyricsOn);
     renderMenu();
+    playUiClick();
   });
   $('debug-button').addEventListener('click', () => {
     debugModeOn = !debugModeOn;
     save('debugMode', debugModeOn);
     renderMenu();
+    playUiClick();
   });
   $('autoplay-button').addEventListener('click', () => {
     autoplayOn = !autoplayOn;
     save('autoplay', autoplayOn);
     renderMenu();
+    playUiClick();
   });
 
   // ---- 設定モーダル ----
@@ -600,7 +614,7 @@ function initGameMode(): { enter: () => void } {
   });
   requestPersist();
 
-  // 音ゲー画面へ入るたびに、メニュー画面から始める
+  // リズムゲーム画面へ入るたびに、メニュー画面から始める
   function enter(): void {
     show('menu');
     renderMenu();
@@ -610,7 +624,7 @@ function initGameMode(): { enter: () => void } {
 }
 let gameMode: { enter: () => void } | null = null;
 
-/** 音ゲーモードへ入る（初回は初期化し、毎回メニュー画面から始める） */
+/** リズムゲームへ入る（初回は初期化し、毎回メニュー画面から始める） */
 export function enterGameMode(): void {
   gameMode ??= initGameMode();
   gameMode.enter();

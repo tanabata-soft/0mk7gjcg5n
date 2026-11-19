@@ -30,7 +30,7 @@ try {
   });
   await page.goto(url);
   await page.waitForFunction(() => globalThis.__appStarted === true);
-  // 音ゲーモードへ入る（CD 側のトップから「遊ぶ」ボタン）
+  // リズムゲームへ入る（CD 側のトップから「遊ぶ」ボタン）
   await page.locator('#btn-open-game').click();
   await page.waitForFunction("!document.getElementById('menu-screen').hidden", null, { timeout: 10_000 });
 

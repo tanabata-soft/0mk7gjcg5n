@@ -3,11 +3,11 @@ import { describe, expect, it } from 'vitest';
 import { SONGS } from '../src/game/charts';
 import { validateCharts, type LyricLine } from '../src/game/logic';
 
-// 音ゲーモードのデータ（譜面 charts.json / 歌詞 lyrics.json）の整合を担保する。
+// リズムゲームのデータ（譜面 charts.json / 歌詞 lyrics.json）の整合を担保する。
 // 譜面は scripts/generate-charts.py の生成物、歌詞は CD 側の検証済み歌詞同期
 // データ（src/album/sync.ts）から scripts/gen-game-lyrics.mjs が変換したもの。
 
-describe('音ゲーモードの曲データ', () => {
+describe('リズムゲームの曲データ', () => {
   it('収録曲は3曲で、CD 側の曲順・曲名とそろっている', () => {
     expect(SONGS.map((s) => s.id)).toEqual(['keiyo', 'umi', 'yoru']);
     expect(SONGS.map((s) => s.data.title)).toEqual(['京葉線の午後', '千葉の海に溶けてゆく', '繋いだ手と朱い夜']);

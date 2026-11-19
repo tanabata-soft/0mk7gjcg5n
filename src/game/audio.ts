@@ -107,15 +107,39 @@ export async function resumeAudio(): Promise<void> {
   }
 }
 
+/**
+ * data: URL をバイト列へ戻す。Safari / WebKit は fetch で data: URL を読めないため、
+ * 単体ファイルプレビュー（音源が data: URL で埋め込まれる）では fetch 経由だと
+ * 音源が読み込めずゲームが始まらない。data: のときは自前でデコードする。
+ */
+function dataUriToArrayBuffer(url: string): ArrayBuffer {
+  const comma = url.indexOf(',');
+  const meta = url.slice(0, comma);
+  const data = url.slice(comma + 1);
+  if (meta.includes(';base64')) {
+    const bin = atob(data);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    return bytes.buffer;
+  }
+  return new TextEncoder().encode(decodeURIComponent(data)).buffer as ArrayBuffer;
+}
+
 /** 曲の音源を読み込んでデコードする。2回目以降は保持したバッファを返す。 */
 export async function loadBuffer(url: string): Promise<AudioBuffer> {
   const cached = buffers.get(url);
   if (cached) return cached;
   const ac = audioContext();
   await resumeAudio();
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`音源を読み込めませんでした (${res.status})`);
-  const buf = await ac.decodeAudioData(await res.arrayBuffer());
+  let raw: ArrayBuffer;
+  if (url.startsWith('data:')) {
+    raw = dataUriToArrayBuffer(url);
+  } else {
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`音源を読み込めませんでした (${res.status})`);
+    raw = await res.arrayBuffer();
+  }
+  const buf = await ac.decodeAudioData(raw);
   buffers.set(url, buf);
   return buf;
 }

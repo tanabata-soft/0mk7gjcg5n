@@ -138,7 +138,7 @@ $('#btn-play-all').addEventListener('click', () => {
 });
 if (!SINGLE) $('#btn-open-tracks').addEventListener('click', () => go('tracks'));
 $('#btn-open-game').addEventListener('click', () => {
-  // 音ゲーモードに入る時は、CD 側の再生を止める（2つの音が重ならないように）
+  // リズムゲームに入る時は、CD 側の再生を止める（2つの音が重ならないように）
   audio.pause();
   enterGameMode();
   go('game');

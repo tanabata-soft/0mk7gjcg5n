@@ -1,4 +1,4 @@
-// 音ゲーモードの歌詞データ（src/game/data/lyrics.json）を、CD 側で検証済みの
+// リズムゲームの歌詞データ（src/game/data/lyrics.json）を、CD 側で検証済みの
 // 歌詞同期データ（src/album/sync.ts の SYNC）から変換して生成する。
 //
 // 字幕（mov_text）から取り直さないこと。NK-S003 では字幕の表示時刻が実唱と
@@ -11,7 +11,7 @@
 // 使い方: node scripts/gen-game-lyrics.mjs
 import { readFileSync, writeFileSync } from 'node:fs';
 
-/** 曲名（sync.ts / tracks.ts のキー）→ 音ゲー側の曲 ID */
+/** 曲名（sync.ts / tracks.ts のキー）→ リズムゲーム側の曲 ID */
 const ID_BY_TITLE = {
   '京葉線の午後': 'keiyo',
   '千葉の海に溶けてゆく': 'umi',

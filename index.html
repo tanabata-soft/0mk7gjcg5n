@@ -29,7 +29,7 @@
       <div class="cover-actions">
         <div class="abtn"><button class="icon-btn" id="btn-open-tracks" aria-label="曲目"><svg viewBox="0 0 24 24"><path d="M8.5 6h12M8.5 12h12M8.5 18h12"/><circle cx="4" cy="6" r="1.2" fill="currentColor" stroke="none"/><circle cx="4" cy="12" r="1.2" fill="currentColor" stroke="none"/><circle cx="4" cy="18" r="1.2" fill="currentColor" stroke="none"/></svg></button><span>曲目</span></div>
         <div class="abtn"><button class="icon-btn main" id="btn-play-all" aria-label="全曲再生"><svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg></button><span>再生</span></div>
-        <div class="abtn"><button class="icon-btn" id="btn-open-game" aria-label="音ゲーで遊ぶ"><svg viewBox="0 0 24 24"><path d="M9 18.5V7l10-2v11.5"/><circle cx="6.5" cy="18.5" r="2.5"/><circle cx="16.5" cy="16.5" r="2.5"/></svg></button><span>遊ぶ</span></div>
+        <div class="abtn"><button class="icon-btn" id="btn-open-game" aria-label="チーマイモードで遊ぶ"><svg viewBox="0 0 24 24"><path d="M9 18.5V7l10-2v11.5"/><circle cx="6.5" cy="18.5" r="2.5"/><circle cx="16.5" cy="16.5" r="2.5"/></svg></button><span>遊ぶ</span></div>
         <div class="abtn"><button class="icon-btn" id="btn-open-booklet" aria-label="ブックレット"><svg viewBox="0 0 24 24"><path d="M12 6.2C10.2 4.7 7.8 4.2 4 4.2v13.6c3.8 0 6.2.5 8 2 1.8-1.5 4.2-2 8-2V4.2c-3.8 0-6.2.5-8 2z"/><path d="M12 6.2v13.6"/></svg></button><span>ブックレット</span></div>
       </div>
       <button id="install-open-cover" type="button" class="link cover-install">📲 アプリとしてインストールする方法</button>
@@ -77,9 +77,8 @@
       </div>
     </section>
 
-    <!-- 音ゲーモード（リズムゲームエンジン v1.0.0 を同居させたもの。配線は src/game/game-main.ts） -->
+    <!-- リズムゲーム（リズムゲームエンジン v1.0.0 を同居させたもの。配線は src/game/game-main.ts） -->
     <section id="view-game" class="view">
-      <div class="game-top"><button class="game-back" data-go="cover">‹ トップ</button></div>
       <div class="game-main">
         <!-- メニュー画面 -->
         <div id="menu-screen">
@@ -87,7 +86,7 @@
             <div class="brand-top">
               <p class="brand-en" aria-hidden="true">RHYTHM GAME</p>
             </div>
-            <h1>音ゲーモード</h1>
+            <h1>チーマイモード</h1>
             <p class="brand-sub">『京葉線の午後』の収録曲で遊ぶ</p>
           </header>
 
@@ -110,10 +109,10 @@
 
           <button id="start-button" type="button" class="primary go">スタート</button>
           <p id="start-status" class="muted" role="status"></p>
-          <p class="note howto">ノーツが下の枠に重なったらタップ。長い帯は終わるまで押しっぱなし（パソコンは D / F / J / K）。左上の ✕ で中断できます。</p>
 
           <footer class="menu-footer">
             <button id="settings-open" type="button" class="settings-open" aria-haspopup="dialog" aria-controls="settings-dialog"><span aria-hidden="true">⚙</span> 設定</button>
+            <button type="button" class="settings-open game-back" data-go="cover">戻る</button>
           </footer>
         </div>
 
@@ -164,6 +163,9 @@
         </div>
 
         <p class="muted best-line">ベストスコア: <span id="menu-best">0</span></p>
+
+        <h3 class="sub-title">遊び方</h3>
+        <p class="note">ノーツが下の枠に重なったらタップ。長い帯は終わるまで押しっぱなし（パソコンは D / F / J / K）。演奏は左上の ✕ で中断できます。</p>
 
         <h3 class="sub-title">タイミング調整（オフセット）</h3>
         <div class="offset-row">

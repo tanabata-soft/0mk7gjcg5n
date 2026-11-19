@@ -490,6 +490,32 @@ export async function playFullComboVoice(url?: string): Promise<void> {
   }
 }
 
+/** 選択を変えたときの確認音（曲・難易度・設定の切替など）。空タップ音より少し高く、短く小さく鳴らす */
+export const UI_CLICK: BlipToneParams = {
+  freq1: 1568,
+  freq2: 0,
+  freq3: 0,
+  dur1: 0.035,
+  dur2: 0,
+  dur3: 0,
+  decaySec: 0.02,
+  peak: 0.1,
+  clickPeak: 0.04,
+  clickSec: 0.004,
+};
+
+export function playUiClick(): void {
+  if (!enabled) return;
+  try {
+    const ac = audioContext();
+    void ac.resume();
+    playBlip(UI_CLICK, UI_CLICK.freq1, UI_CLICK.freq2);
+    document.dispatchEvent(new CustomEvent('app:sound', { detail: { kind: 'ui', frequency: UI_CLICK.freq1 } }));
+  } catch {
+    // 音が出せなくても続行する
+  }
+}
+
 /** 空タップ音。ノーツのないレーンを押したときに鳴らす（ヒット音とは別の小さな音） */
 export function playEmptySound(): void {
   if (!enabled) return;
