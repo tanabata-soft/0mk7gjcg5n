@@ -207,9 +207,6 @@ export class Game {
   private startAt = 0; // AudioContext 時刻（秒）
   private durationSec = 0;
   private bg: HTMLImageElement | null = null;
-  /** タイトル帯（titleBand を持つ曲専用）の中間 canvas のキャッシュ。
-   * 画像・画面サイズ・DPR が変わったときだけ作り直す */
-  private bgBand: { img: HTMLImageElement; w: number; h: number; d: number; c: HTMLCanvasElement } | null = null;
   private flash = [0, 0, 0, 0];
   private particles: Particle[] = [];
   private particlePool: Particle[] = [];
@@ -697,21 +694,15 @@ export class Game {
   }
 
   /**
-   * 通常背景（ジャケット）の描画。曲選択カルーセルと同じ「縦長切り抜き」に統一する。
-   * 基本は画面全体を覆う cover 切り抜きで、切り取る位置は曲ごとに
-   * charts.ts の bgCrop（カルーセルの寄せ方向と同じ知見）で決める。
-   *
-   * ただし、絵の中のタイトルが縦長画面の cover 窓（幅は画面比で約 0.46）より
-   * 広い曲は、そのままだとタイトルの端が切れてしまう。そういう曲には2つの
-   * 対処がある（charts.ts の SongEntry 参照）:
-   * - bgCrop.titleWidth: タイトルが収まる幅の窓を画面の横幅いっぱいに敷く層を、
-   *   下地（cover を暗くしたもの）の上に重ね、内側の端をグラデーションで
-   *   下地へ溶かす（ポスター層。寄せは bgCrop.y）。
-   * - titleBand: 主表示は cover のまま絵の見せたい部分（bgCrop）に合わせ、
-   *   タイトルは下部に「タイトル帯」として、タイトルが収まる幅で重ねる。
-   *   主表示の上端を見せつつタイトルも収めたい曲向け。
-   * 全体を縮小して上下をぼかしで埋める方式は採らない（絵が小さく見えるため）。
-   * この後に従来どおりベール（暗幕）がかかるので、ノーツの視認性は変わらない。
+   * 通常背景（ジャケット）の描画（オーナー決定 2026-11-20 の形）。
+   * 背景の要素はジャケットと歌詞だけにする:
+   * - ジャケットは、絵に焼き込まれた紙枠（charts.ts の frameInset）を除いた
+   *   内側の絵だけを、画面幅いっぱいの正方形として上部に敷く。枠がないので
+   *   「額縁に入った絵」ではなく背景そのものとして見える
+   * - 正方形の下端は下地色（#0e1018）へグラデーションで溶かし、境目を消す
+   * - ノーツはジャケットの上からそのまま流れ落ちる（描画順は従来どおり
+   *   背景→ベール→レーン→ノーツ）。歌詞は DOM 側でジャケットのすぐ下に出る
+   * 横長画面では正方形の一辺を画面の高さに合わせ、横は中央に置く。
    * コンボ演出の背景はこの方式の対象外（従来どおり全面 cover で置き換わる）。
    */
   private drawJacketBackground(W: number, H: number): void {
@@ -720,96 +711,19 @@ export class Game {
     const { g } = this;
     const iw = img.naturalWidth;
     const ih = img.naturalHeight;
-    const crop = this.entry?.bgCrop ?? { x: 0.5, y: 0.5 };
-    // 下地: 画面全体を覆う cover 切り抜き（ソース矩形のアスペクトを画面に合わせ、
-    // 余る方向は bgCrop の寄せで切り取る位置を決める）
-    let sw = iw;
-    let sh = iw / (W / H);
-    if (sh > ih) {
-      sh = ih;
-      sw = ih * (W / H);
-    }
-    const sx = crop.x * (iw - sw);
-    const sy = crop.y * (ih - sh);
-    g.drawImage(img, sx, sy, sw, sh, 0, 0, W, H);
-    // titleBand を持つ曲: 主表示（上の cover）の下部にタイトル帯を重ねて終わる
-    if (this.entry?.titleBand) {
-      this.drawTitleBand(W, H);
-      return;
-    }
-    if (!crop.titleWidth) return;
-    // タイトルが収まる窓を敷く曲（ポスター層）: 下地を暗くしてから、窓を横幅いっぱいに重ねる
-    g.fillStyle = 'rgba(6,8,16,.5)';
-    g.fillRect(0, 0, W, H);
-    const pw = crop.titleWidth * iw;
-    const px = crop.x * (iw - pw);
-    const ph = (W * ih) / pw; // 横幅いっぱいに敷いたときの高さ
-    const py = crop.y * (H - ph);
-    g.drawImage(img, px, 0, pw, ih, 0, py, W, ph);
-    // 窓の内側の端を、グラデーションで下地へ溶かす
-    const feather = Math.min(170, ph * 0.38);
-    if (ph < H && feather > 0) {
-      if (crop.y <= 0.5) {
-        // 上寄せ: 窓の下端を溶かす
-        const grad = g.createLinearGradient(0, py + ph - feather, 0, py + ph);
-        grad.addColorStop(0, 'rgba(8,10,20,0)');
-        grad.addColorStop(1, 'rgba(8,10,20,.94)');
-        g.fillStyle = grad;
-        g.fillRect(0, py + ph - feather, W, feather);
-      } else {
-        // 下寄せ: 窓の上端を溶かす
-        const grad = g.createLinearGradient(0, py, 0, py + feather);
-        grad.addColorStop(0, 'rgba(8,10,20,.94)');
-        grad.addColorStop(1, 'rgba(8,10,20,0)');
-        g.fillStyle = grad;
-        g.fillRect(0, py, W, feather);
-      }
-    }
+    const inset = Math.min(this.entry?.frameInset ?? 0, iw / 4, ih / 4);
+    const side = Math.min(W, H);
+    const dx = (W - side) / 2;
+    g.drawImage(img, inset, inset, iw - inset * 2, ih - inset * 2, dx, 0, side, side);
+    // 下端を下地へ溶かす
+    const fadeH = side * 0.18;
+    const grad = g.createLinearGradient(0, side - fadeH, 0, side);
+    grad.addColorStop(0, 'rgba(14,16,24,0)');
+    grad.addColorStop(1, 'rgba(14,16,24,1)');
+    g.fillStyle = grad;
+    g.fillRect(dx, side - fadeH, side, fadeH);
   }
 
-  /**
-   * タイトル帯（titleBand を持つ曲専用）: ジャケットの下部を、タイトルが
-   * 収まる幅（titleBand.width）の窓で画面の下部に重ねる。主表示は
-   * drawJacketBackground の cover で、帯はその上に重なる。
-   * 帯の上端はグラデーションで主表示へ馴染ませる: 帯を中間 canvas に描いて
-   * から上端を destination-out で薄くし、毎フレームは描くだけにする
-   * （画像・画面サイズ・DPR が変わったときだけ作り直す）。帯の高さは、
-   * 主表示側のタイトルが帯の不透明な部分で隠れるよう top から決まる
-   * （top の決め方は docs/START-HERE.md の曲追加の手順を参照）。
-   */
-  private drawTitleBand(W: number, H: number): void {
-    const img = this.bg;
-    const band = this.entry?.titleBand;
-    if (!img || !band) return;
-    const iw = img.naturalWidth;
-    const ih = img.naturalHeight;
-    const bw = band.width * iw;
-    const bandH = Math.round(((ih * (1 - band.top)) / bw) * W);
-    const d = window.devicePixelRatio || 1;
-    if (
-      !this.bgBand ||
-      this.bgBand.img !== img ||
-      this.bgBand.w !== W ||
-      this.bgBand.h !== H ||
-      this.bgBand.d !== d
-    ) {
-      const c = document.createElement('canvas');
-      c.width = Math.max(1, Math.round(W * d));
-      c.height = Math.round(bandH * d);
-      const cg = c.getContext('2d');
-      if (!cg) return;
-      cg.drawImage(img, 0, ih * band.top, bw, ih * (1 - band.top), 0, 0, c.width, c.height);
-      const fade = Math.min(120, bandH * 0.28) * d;
-      const grad = cg.createLinearGradient(0, 0, 0, fade);
-      grad.addColorStop(0, 'rgba(0,0,0,1)');
-      grad.addColorStop(1, 'rgba(0,0,0,0)');
-      cg.globalCompositeOperation = 'destination-out';
-      cg.fillStyle = grad;
-      cg.fillRect(0, 0, c.width, fade);
-      this.bgBand = { img, w: W, h: H, d, c };
-    }
-    this.g.drawImage(this.bgBand.c, 0, H - bandH, W, bandH);
-  }
 
   private finish(): void {
     this.playing = false;

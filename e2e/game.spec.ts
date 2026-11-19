@@ -87,6 +87,13 @@ test('ゲームが始まり、Canvas が表示され、左上タップでメニ�
   await expect(page.locator('#game-screen')).toBeVisible();
   await expect(page.locator('#game-canvas')).toBeVisible();
   await expect(page.locator('body')).toHaveAttribute('data-game', 'playing', { timeout: 30_000 });
+  // 歌詞はジャケット（画面幅いっぱいの正方形）のすぐ下に出る（判定ラインより上）
+  const lyricBox = await page.locator('#lyrics').evaluate((el) => {
+    const r = el.getBoundingClientRect();
+    return { top: r.top, width: window.innerWidth, height: window.innerHeight };
+  });
+  expect(lyricBox.top).toBeGreaterThanOrEqual(lyricBox.width);
+  expect(lyricBox.top).toBeLessThan(lyricBox.height * 0.82);
   // 左上の ✕ の場所をタップして中断する
   await page.locator('#game-canvas').dispatchEvent('pointerdown', { clientX: 20, clientY: 20 });
   await expect(page.locator('#menu-screen')).toBeVisible();

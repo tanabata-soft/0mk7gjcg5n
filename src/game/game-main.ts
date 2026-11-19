@@ -425,6 +425,8 @@ function initGameMode(): { enter: () => void } {
     const lines = lastEntry.lyrics;
     const cur = $('lyric-current');
     const text = index >= 0 ? (lines[index]?.text ?? '') : '';
+    // 歌い出し前（全行が空）では帯の背景も消す（空の帯だけが残らないように）
+    $('lyrics').classList.toggle('lyrics-empty', index < 0);
     $('lyric-prev').textContent = index > 0 ? lines[index - 1].text : '';
     cur.textContent = text;
     $('lyric-next').textContent = index >= 0 && index + 1 < lines.length ? lines[index + 1].text : '';

@@ -500,14 +500,22 @@
   touch-action: none;
 }
 
-/* 歌詞（3行）。判定ライン（画面の82%）より下の帯に小さく出す。タップは透過 */#view-game .lyrics {
+/* 歌詞（3行）。ジャケット（画面幅いっぱいの正方形）のすぐ下の帯に出す。
+   横長画面では正方形の一辺は画面の高さになるので、min() で追随する。タップは透過 */#view-game .lyrics {
   position: absolute;
   left: 8px;
   right: 8px;
-  bottom: max(4px, env(safe-area-inset-bottom));
+  top: calc(min(100vw, 100dvh) + 10px);
+  padding: 8px 10px;
+  border-radius: 14px;
+  background: rgb(5 8 20 / 0.45);
   text-align: center;
   pointer-events: none;
   z-index: 4;
+}
+
+#view-game .lyrics.lyrics-empty {
+  background: transparent;
 }
 
 #view-game .lyric-line {
