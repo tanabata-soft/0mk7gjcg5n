@@ -85,35 +85,12 @@ export function refreshDebugPanel(): void {
  * デバッグモードをつなぐ。trigger（バージョンの表示）を続けて DEBUG_TAPS 回タップすると切り替わり、
  * オンのあいだだけ panel に actions のボタンと「終了」を出す。onChange は切り替わったときに呼ぶ。
  */
-/** setupDebug が登録した切り替え処理（追加の入口からも同じ切り替えを使う）。 */
-let activeToggle: ((value: boolean) => void) | null = null;
-
-/**
- * 追加の入口（別の画面のバージョン表示など）を、setupDebug と同じ切り替えにつなぐ。
- * setupDebug の後に呼ぶこと。切り替わった直後に afterToggle を呼ぶ。
- */
-export function attachDebugTrigger(trigger: HTMLElement, afterToggle?: () => void): void {
-  let taps = 0;
-  let last = 0;
-  trigger.addEventListener('click', () => {
-    const now = Date.now();
-    taps = now - last > TAP_GAP_MS ? 1 : taps + 1;
-    last = now;
-    if (taps >= DEBUG_TAPS) {
-      taps = 0;
-      activeToggle?.(!on);
-      afterToggle?.();
-    }
-  });
-}
-
 export function setupDebug(panel: HTMLElement, trigger: HTMLElement, actions: DebugAction[], onChange?: (on: boolean) => void): void {
   const toggle = (value: boolean): void => {
     setDebug(value);
     render();
     onChange?.(value);
   };
-  activeToggle = toggle;
   const render = (): void => {
     renderPanel = render;
     panel.hidden = !on;

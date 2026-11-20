@@ -20,7 +20,6 @@ import { SONGS, songById, type SongEntry } from './charts';
 import { comboPatternDef } from './presentation';
 import { Game, type GameResult } from './game';
 import {
-  attachDebugTrigger,
   exposeTestApi,
   isDebug,
   refreshDebugPanel,
@@ -330,14 +329,6 @@ function initGameMode(): { enter: () => void } {
   });
   settingsDialog.addEventListener('close', () => {
     document.body.classList.remove('dialog-open');
-  });
-  // 設定の中にもバージョン表示を出し、CD 側と同じく5回タップでデバッグモードの入口にする
-  // （CD 側の入口は裏面のバージョン表示で、チーマイモードの中からは届かないため。オーナー指摘 2026-11-20）
-  $<HTMLElement>('game-version').textContent = __APP_VERSION__;
-  attachDebugTrigger($<HTMLElement>('game-version-line'), () => {
-    renderMenu();
-    // オンになったらパネル（モーダルの背面に出る）が見えるよう、設定を閉じる
-    if (isDebug()) closeSettings();
   });
 
   // ---- 遅延チェック（設定モーダルから開く。拍に合わせてタップし、ずれを測る） ----
