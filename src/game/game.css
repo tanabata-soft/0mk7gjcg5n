@@ -97,28 +97,35 @@
   text-shadow: 0 1px 8px rgb(0 0 0 / 0.6);
 }
 
-/* メニュー下部のフッター（設定と「戻る」を横並びにする）。文字だけの控えめなボタン */#view-game .menu-footer {
+/* メニュー下部のフッター（設定と「戻る」を横並びにする） */#view-game .menu-footer {
   display: flex;
   justify-content: space-between;
   margin-top: 28px;
 }
 
-/* 設定・戻るボタン（メニュー下部のフッター） */#view-game .settings-open {
+/* 設定・戻るボタン（メニュー下部のフッター）。文字だけでは押せる見た目に
+   ならないため、控えめな面と枠でボタンらしくする。スタート（ピンクの
+   ネオン輪郭）とは見た目の系統を変える（オーナー指示 2026-11-20） */
+#view-game .settings-open {
   display: flex;
   flex: 0 0 auto;
   align-items: center;
   gap: 6px;
   margin: 0;
-  padding: 10px 2px;
+  padding: 10px 18px;
   min-height: 48px;
-  border: none;
-  border-radius: 0;
-  background: transparent;
+  border: 1px solid rgb(255 255 255 / 0.22);
+  border-radius: 12px;
+  background: rgb(255 255 255 / 0.06);
   font-size: 0.85rem;
   font-weight: 400;
-  letter-spacing: 0.22em;
-  color: #c3c6d8;
+  letter-spacing: 0.18em;
+  color: #dfe3f0;
   white-space: nowrap;
+}
+
+#view-game .settings-open:active {
+  background: rgb(255 255 255 / 0.13);
 }
 
 #view-game h1 {
