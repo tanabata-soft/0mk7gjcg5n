@@ -46,10 +46,22 @@ function initGameMode(): { enter: () => void } {
   // オンにしたときだけオートプレイのトグルを出す
   let debugModeOn = load<boolean>('debugMode', false);
   let autoplayOn = load<boolean>('autoplay', false);
-  type BestMap = Record<string, number>;
+  /** ベスト記録: スコアと、その記録を出した回のランクを一緒に持つ */
+  interface BestEntry {
+    score: number;
+    rank?: string;
+  }
+  type BestMap = Record<string, BestEntry>;
   const bestKey = (song: SongId, diff: Difficulty): string => `${song}:${diff}`;
-  const loadBests = (): BestMap => load<BestMap>('best', {});
-  const bestOf = (song: SongId, diff: Difficulty): number => loadBests()[bestKey(song, diff)] ?? 0;
+  const loadBests = (): BestMap => {
+    // 旧形式（数値だけの保存）はランクなしとして読み替える
+    const raw = load<Record<string, number | BestEntry>>('best', {});
+    const out: BestMap = {};
+    for (const [k, v] of Object.entries(raw)) out[k] = typeof v === 'number' ? { score: v } : v;
+    return out;
+  };
+  const bestOf = (song: SongId, diff: Difficulty): number => loadBests()[bestKey(song, diff)]?.score ?? 0;
+  const bestRankOf = (song: SongId, diff: Difficulty): string | undefined => loadBests()[bestKey(song, diff)]?.rank;
 
   // ---- 画面の出し分け ----
   type Screen = 'menu' | 'game' | 'result';
@@ -210,6 +222,10 @@ function initGameMode(): { enter: () => void } {
     for (const b of diffButtons) b.setAttribute('aria-pressed', String(b.dataset.diff === selectedDiff));
     $('menu-best-label').textContent = `${songById(selectedSong).data.title}・${DIFFICULTIES[selectedDiff].label} のベストスコア`;
     $('menu-best').textContent = String(bestOf(selectedSong, selectedDiff));
+    const rank = bestRankOf(selectedSong, selectedDiff);
+    const rankEl = $('menu-best-rank');
+    rankEl.textContent = rank ?? '—';
+    rankEl.classList.toggle('none', !rank);
     $('offset-value').textContent = `${offsetMs > 0 ? '+' : ''}${offsetMs}ms`;
     renderToggle('sound-button', isSoundOn());
     renderToggle('vibrate-button', isVibrateOn());
@@ -538,10 +554,12 @@ function initGameMode(): { enter: () => void } {
   function showResult(result: GameResult): void {
     const bests = loadBests();
     const key = bestKey(lastEntry.id, lastDiff);
-    // オートプレイの結果はベストスコアに残さない（表示は保存済みのベストのまま）
-    const best = result.autoplay ? (bests[key] ?? 0) : Math.max(bests[key] ?? 0, result.score);
-    if (!result.autoplay) {
-      bests[key] = best;
+    // オートプレイの結果はベストスコアに残さない（表示は保存済みのベストのまま）。
+    // ベストを更新したときは、その回のランクも一緒に保存する（メニューのパネルに出す）
+    const prev = bests[key];
+    const best = result.autoplay ? (prev?.score ?? 0) : Math.max(prev?.score ?? 0, result.score);
+    if (!result.autoplay && result.score >= (prev?.score ?? 0)) {
+      bests[key] = { score: best, rank: result.rank };
       save('best', bests);
     }
     $('result-rank').textContent = result.rank;

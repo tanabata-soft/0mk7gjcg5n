@@ -104,14 +104,6 @@
     0 0 36px rgb(124 77 255 / 0.5);
 }
 
-/* 題字の副題（小さく添える） */#view-game .brand-sub {
-  margin: 4px 0 0;
-  font-size: 0.8rem;
-  letter-spacing: 0.18em;
-  text-indent: 0.18em;
-  color: var(--muted);
-}
-
 #view-game .section-title {
   font-size: 0.95rem;
   margin: 16px 0 8px;
@@ -458,10 +450,48 @@
   box-shadow: 0 0 10px rgb(255 77 141 / 0.8);
 }
 
-/* ベストスコアは曲選択画面に、選んでいる曲・難易度のラベルつきで出す（設定には置かない） */
-#view-game .best-line {
-  margin: 2px 0 0;
+/* ベストスコアは曲選択画面の難易度の上に、専用の領域（パネル）で出す。
+   左にランク文字、右に「曲名・難易度 のベストスコア」のラベルとスコア（設定には置かない） */
+#view-game .best-panel {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 8px 16px;
+  margin: 12px 0 10px;
+}
+
+#view-game .best-rank {
+  font-size: 2rem;
+  font-weight: 800;
+  line-height: 1;
+  color: var(--gold);
+  min-width: 2.4rem;
   text-align: center;
+}
+
+#view-game .best-rank.none {
+  color: var(--muted);
+}
+
+#view-game .best-meta {
+  text-align: left;
+}
+
+#view-game .best-label {
+  margin: 0;
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+#view-game .best-score {
+  margin: 0;
+  font-size: 1.35rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.15;
 }
 
 #view-game .offset-row {

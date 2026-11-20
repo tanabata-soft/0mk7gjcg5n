@@ -87,7 +87,6 @@
               <p class="brand-en" aria-hidden="true">RHYTHM GAME</p>
             </div>
             <h1>チーマイモード</h1>
-            <p class="brand-sub">『京葉線の午後』の収録曲で遊ぶ</p>
           </header>
 
           <!-- 曲選択はジャケット主役のカルーセル（左右スワイプ／スクロールで切り替え）。
@@ -101,13 +100,20 @@
             <div id="carousel-dots" class="carousel-dots" role="group" aria-label="曲の位置"></div>
           </section>
 
+          <!-- ベストスコアは難易度の上に専用の領域で出す（ランク＋スコア。オーナー指示 2026-11-20） -->
+          <div class="best-panel" id="best-panel">
+            <span class="best-rank none" id="menu-best-rank">—</span>
+            <div class="best-meta">
+              <p class="best-label" id="menu-best-label">ベストスコア</p>
+              <p class="best-score" id="menu-best">0</p>
+            </div>
+          </div>
+
           <div class="row diff-row" id="diff-row" role="group" aria-label="難易度">
             <button type="button" class="opt" data-diff="easy" aria-pressed="true">かんたん</button>
             <button type="button" class="opt" data-diff="normal" aria-pressed="false">ふつう</button>
             <button type="button" class="opt" data-diff="hard" aria-pressed="false">むずかしい</button>
           </div>
-
-          <p class="muted best-line"><span id="menu-best-label">ベストスコア</span> <span id="menu-best">0</span></p>
 
           <button id="start-button" type="button" class="primary go">スタート</button>
           <p id="start-status" class="muted" role="status"></p>

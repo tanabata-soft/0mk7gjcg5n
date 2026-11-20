@@ -42,6 +42,13 @@ test('曲と難易度を選べる', async ({ page }) => {
   await expect(page.locator('#diff-row [data-diff="hard"]')).toHaveAttribute('aria-pressed', 'true');
   // ベストスコアは曲選択画面に、選んでいる曲・難易度のラベルつきで出る
   await expect(page.locator('#menu-best-label')).toHaveText('千葉の海に溶けてゆく・むずかしい のベストスコア');
+  // ベストのパネルは難易度の上にある専用領域で、ランク表示の枠も持つ
+  const panelBox = await page.locator('#best-panel').boundingBox();
+  const diffBox = await page.locator('#diff-row').boundingBox();
+  expect(panelBox).not.toBeNull();
+  expect(diffBox).not.toBeNull();
+  expect(panelBox!.y + panelBox!.height).toBeLessThanOrEqual(diffBox!.y);
+  await expect(page.locator('#menu-best-rank')).toHaveText('—');
   // 結果カードは演奏画面の中にあり、演奏画面の上に重ねて出す構造になっている
   await expect(page.locator('#game-screen #result-screen')).toHaveCount(1);
   // ドットからも選べる
@@ -55,8 +62,8 @@ test('設定ダイアログが開閉できる', async ({ page }) => {
   await expect(page.locator('#settings-dialog')).toBeVisible();
   // 操作説明（遊び方）は設定の中にある
   await expect(page.locator('#settings-dialog')).toContainText('遊び方');
-  // ベストスコアは設定には出さない（曲選択画面にラベルつきで出す）
-  await expect(page.locator('#settings-dialog .best-line')).toHaveCount(0);
+  // ベストスコアは設定には出さない（曲選択画面のパネルで出す）
+  await expect(page.locator('#settings-dialog #best-panel')).toHaveCount(0);
   await expect(page.locator('#settings-dialog')).toContainText('ノーツが下の枠に重なったらタップ');
   // オフセットの増減が保存・表示される
   await page.locator('#offset-plus').click();
@@ -132,6 +139,10 @@ test('結果は演奏画面の上に重なって出て、コンボ段階がコ�
   await expect(page.locator('#game-screen')).toBeVisible();
   await expect(page.locator('#result-screen')).toBeVisible();
   await expect(page.locator('#menu-screen')).toBeHidden();
+  // メニューに戻ると、ベストのパネルに今回のランクが残っている
+  await page.locator('#back-button').click();
+  await expect(page.locator('#menu-screen')).toBeVisible();
+  await expect(page.locator('#menu-best-rank')).toHaveText(/^[SABC]$/);
 });
 
 test('チーマイモード画面からトップへ戻れる（設定の横の「戻る」ボタン）', async ({ page }) => {
