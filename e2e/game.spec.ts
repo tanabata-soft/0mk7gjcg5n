@@ -64,6 +64,9 @@ test('設定ダイアログが開閉できる', async ({ page }) => {
   await expect(page.locator('#settings-dialog')).toContainText('遊び方');
   // ベストスコアは設定には出さない（曲選択画面のパネルで出す）
   await expect(page.locator('#settings-dialog #best-panel')).toHaveCount(0);
+  // オートプレイとデバッグモードも設定には出さない（デバッグパネル側に移した）
+  await expect(page.locator('#settings-dialog')).not.toContainText('オートプレイ');
+  await expect(page.locator('#settings-dialog')).not.toContainText('デバッグモード');
   await expect(page.locator('#settings-dialog')).toContainText('ノーツが下の枠に重なったらタップ');
   // オフセットの増減が保存・表示される
   await page.locator('#offset-plus').click();

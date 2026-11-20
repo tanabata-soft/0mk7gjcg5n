@@ -676,106 +676,6 @@
   font-size: 1.65rem;
 }
 
-/* フルコンボ演出（演奏の締めに、結果画面の前に全面で出す）。
-   演奏は終わっているので、プレイ中のコンボ演出の背景と違い全面を覆ってよい。
-   絵（素材スロットの FULLCOMBO_IMAGE_URL。未設定なら絵なしで、下地の暗色の上に）
-   下部の暗いグラデーションの上に「FULL COMBO」の大文字とコンボ数を出す。
-   滞在は main.ts の FULLCOMBO_SHOW_MS（2.8秒: ボイス約1.6秒＋余韻）と合わせる。
-   タップでスキップできる（main.ts が pointerdown で結果へ進める） */#view-game .fullcombo {
-  position: absolute;
-  inset: 0;
-  z-index: 6;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: flex-end;
-  overflow: hidden;
-  background: #000;
-  cursor: pointer;
-  padding-bottom: max(15dvh, env(safe-area-inset-bottom));
-}
-
-#view-game .fullcombo-img {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-
-/* 絵はゆっくり寄る（奥から近づく。プレイ中のケージ背景の push-in と同じ向き） */#view-game .fullcombo.show .fullcombo-img {
-  animation: fullcombo-zoom-g 2.8s ease-out forwards;
-}
-
-@keyframes fullcombo-zoom-g {
-  from {
-    transform: scale(1);
-  }
-  to {
-    transform: scale(1.09);
-  }
-}
-
-/* 下部の文字を読みやすくする暗いグラデーション */#view-game .fullcombo-shade {
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(to bottom, rgb(0 0 0 / 0.25) 0%, transparent 35%, transparent 55%, rgb(0 0 0 / 0.78) 100%);
-}
-
-/* 全体は最初にふわっと入り、最後にフェードアウトする（JS の非表示と合わせる） */#view-game .fullcombo.show {
-  animation: fullcombo-fade-g 2.8s ease-in-out forwards;
-}
-
-@keyframes fullcombo-fade-g {
-  0% {
-    opacity: 0;
-  }
-  7% {
-    opacity: 1;
-  }
-  89% {
-    opacity: 1;
-  }
-  100% {
-    opacity: 0;
-  }
-}
-
-#view-game .fullcombo-text {
-  position: relative;
-  margin: 0;
-  color: var(--gold);
-  font-weight: 800;
-  font-size: clamp(2.5rem, 12.5vw, 3.9rem);
-  line-height: 1.1;
-  letter-spacing: 0.03em;
-  text-align: center;
-  text-shadow:
-    0 0 18px rgb(255 120 40 / 0.55),
-    0 3px 10px rgb(0 0 0 / 0.95);
-}
-
-/* 文字はボイスの叫びに合わせて少し遅れて弾けて出る */#view-game .fullcombo.show .fullcombo-text {
-  animation: fullcombo-pop-g 0.45s ease-out 0.12s backwards;
-}
-
-@keyframes fullcombo-pop-g {
-  from {
-    opacity: 0;
-    transform: scale(0.55);
-  }
-}
-
-#view-game .fullcombo-sub {
-  position: relative;
-  margin: 6px 0 0;
-  color: var(--text);
-  font-weight: 700;
-  font-size: 1.3rem;
-  line-height: 1.2;
-  letter-spacing: 0.06em;
-  text-shadow: 0 2px 6px rgb(0 0 0 / 0.95);
-}
 
 #view-game .sr-only {
   position: absolute;
@@ -811,6 +711,20 @@
 
 #view-game .result p {
   margin: 6px 0;
+}
+
+/* フルコンボの印は結果カードの中に出す（別画面の締め演出は廃止。オーナー指示 2026-11-20） */
+#view-game .result .fullcombo-badge {
+  display: inline-block;
+  margin: 2px 0 6px;
+  padding: 4px 16px;
+  border-radius: 999px;
+  background: var(--gold);
+  color: #231a04;
+  font-size: 0.9rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  box-shadow: 0 0 18px rgb(255 209 102 / 0.45);
 }
 
 /* オートプレイで演奏した回の印（ベストスコアに残らないことを見せる） */#view-game .result .autoplay-badge {

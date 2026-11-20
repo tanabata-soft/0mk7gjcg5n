@@ -1,4 +1,4 @@
-// オートプレイ全通し確認: 設定のデバッグモード＋オートプレイで全曲・hard を
+// オートプレイ全通し確認: デバッグモード（バージョン5回タップのパネル）のオートプレイで全曲・hard を
 // 実時間で最後まで再生し、フルコンボ（MISS 0・最大コンボ＝全ノーツ数）に
 // 到達することを確かめる。譜面を再生成したときの完走可能性チェック用。
 // 対象の曲は src/game/data/charts.json の全曲（曲を足せば自動で対象になる）。
@@ -28,18 +28,17 @@ try {
     failed = true;
     console.error(`pageerror: ${e.message}`);
   });
+  // デバッグモード（バージョン表示の5回タップで出るパネル）を最初からオンにする
+  await page.addInitScript(() => localStorage.setItem('keiyo-single.debug', '1'));
   await page.goto(url);
   await page.waitForFunction(() => globalThis.__appStarted === true);
   // リズムゲームへ入る（CD 側のトップから「遊ぶ」ボタン）
   await page.locator('#btn-open-game').click();
   await page.waitForFunction("!document.getElementById('menu-screen').hidden", null, { timeout: 10_000 });
 
-  // 設定でデバッグモード＋オートプレイを有効化（ユーザー向け設定の経路で）
-  await page.locator('#settings-open').scrollIntoViewIfNeeded();
-  await page.click('#settings-open');
-  await page.locator('#debug-button').click();
-  await page.locator('#autoplay-button').click();
-  await page.locator('#settings-close-bottom').click();
+  // デバッグパネルの「自動」でオートプレイを有効化（設定には置いていない）
+  await page.locator('#debug-panel button[title*="オートプレイ"]').click();
+  await page.waitForFunction("document.body.dataset.autoplay === 'on'", null, { timeout: 10_000 });
   await page.getByRole('button', { name: 'むずかしい' }).click();
 
   for (const song of SONGS) {
@@ -53,21 +52,16 @@ try {
     await page.waitForFunction("document.body.dataset.game === 'result'", null, {
       timeout: durationMs + 90_000,
     });
-    // オートプレイは常時フルコンボなので、結果画面の前にフルコンボ演出（約2.8秒）が
-    // 挟まる。演出が出ていたらタップでスキップし、結果画面が見えるまで待つ
-    await page.waitForFunction(
-      "!document.getElementById('result-screen').hidden || !document.getElementById('fullcombo').hidden",
-      null,
-      { timeout: 30_000 },
-    );
-    if (await page.locator('#fullcombo').isVisible()) await page.locator('#fullcombo').click();
+    // 結果カード（演奏画面の上に重なって出る）が見えるまで待つ
     await page.waitForFunction("!document.getElementById('result-screen').hidden", null, {
       timeout: 30_000,
     });
     const counts = await page.locator('#result-counts').textContent();
     const combo = Number(await page.locator('#result-combo').textContent());
     const miss = Number(/MISS (\d+)/.exec(counts ?? '')?.[1] ?? -1);
-    const ok = miss === 0 && combo === total;
+    // フルコンボの印が結果カードの中に出ていることも確かめる
+    const badge = await page.locator('#result-fullcombo').isVisible();
+    const ok = miss === 0 && combo === total && badge;
     console.log(
       `${song.id} (${song.label}) hard: ${counts} / 最大コンボ ${combo} / 全ノーツ ${total}` +
         ` / 所要 ${Math.round((Date.now() - t0) / 1000)}秒 => ${ok ? 'フルコンボ OK' : 'NG'}`,

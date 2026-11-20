@@ -138,17 +138,12 @@
             <p class="combo-bubble" id="combo-line"></p>
             <p class="combo-count"><span id="combo-num">30</span> COMBO</p>
           </div>
-          <!-- フルコンボ演出（演奏の締め。NK-S003 では絵・ボイスなし＝文字だけ） -->
-          <div id="fullcombo" class="fullcombo" hidden role="button" aria-label="フルコンボ！ タップで結果へ進む">
-            <img id="fullcombo-img" class="fullcombo-img" alt="" draggable="false" />
-            <div class="fullcombo-shade" aria-hidden="true"></div>
-            <p class="fullcombo-text">FULL COMBO</p>
-            <p class="fullcombo-sub"><span id="fullcombo-combo">0</span> COMBO</p>
-          </div>
-          <!-- 結果は別画面にせず、終わった演奏画面の上にカードを重ねて出す（オーナー指示 2026-11-20） -->
+          <!-- 結果は別画面にせず、終わった演奏画面の上にカードを重ねて出す（オーナー指示 2026-11-20）。
+               フルコンボの締め演出も別に出さず、このカードの中の印に統合した（同日指示） -->
           <section id="result-screen" class="card result" hidden aria-live="polite">
             <p class="rank" id="result-rank">S</p>
             <p id="result-autoplay" class="autoplay-badge" hidden>オートプレイ</p>
+            <p id="result-fullcombo" class="fullcombo-badge" hidden>FULL COMBO!</p>
             <p id="result-song"></p>
             <p>スコア <span id="result-score"></span>（ベスト <span id="result-best"></span>）</p>
             <p id="result-counts"></p>
@@ -198,17 +193,7 @@
         </div>
         <p class="note">演奏中、ジャケットの下に歌詞を3行出します。</p>
 
-        <div class="toggle-row">
-          <span>デバッグモード</span>
-          <button id="debug-button" type="button" class="toggle" aria-label="デバッグモード" aria-pressed="false"><span class="toggle-state">オフ</span></button>
-        </div>
-        <div id="autoplay-block" hidden>
-          <div class="toggle-row">
-            <span>オートプレイ</span>
-            <button id="autoplay-button" type="button" class="toggle" aria-label="オートプレイ" aria-pressed="false"><span class="toggle-state">オフ</span></button>
-          </div>
-          <p class="note">オートプレイでは全ノーツを自動で PERFECT にします。譜面や演出の確認用で、結果はベストスコアに残りません。</p>
-        </div>
+        <!-- 確認用の自動演奏は、バージョン表示の5回タップで出るパネル側に移した（オーナー指示 2026-11-20） -->
 
         <button id="settings-close-bottom" type="button" class="dialog-close-wide">閉じる</button>
       </dialog>

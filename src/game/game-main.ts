@@ -17,10 +17,18 @@ type SongId,
 } from './logic';
 import { LatencyCheck } from './latency';
 import { SONGS, songById, type SongEntry } from './charts';
-import { FULLCOMBO_IMAGE_URL, FULLCOMBO_VOICE_URL, comboPatternDef } from './presentation';
+import { comboPatternDef } from './presentation';
 import { Game, type GameResult } from './game';
-import { exposeTestApi, setData } from '../debug';
-import { isSoundOn, playFullComboVoice, playSwipeSound, playUiClick, preloadFullComboVoice, preloadHitSample, setSound } from './sound';
+import {
+  exposeTestApi,
+  isDebug,
+  refreshDebugPanel,
+  registerDebugActions,
+  setData,
+  setDebug,
+  type DebugAction,
+} from '../debug';
+import { isSoundOn, playSwipeSound, playUiClick, preloadHitSample, setSound } from './sound';
 import { isVibrateOn, setVibrate } from './haptics';
 import { audioState, isUnlocked, unlockAudio } from './audio';
 import { load, migrateStorage, requestPersist, save } from './storage';
@@ -42,9 +50,8 @@ function initGameMode(): { enter: () => void } {
   if (!(selectedDiff in DIFFICULTIES)) selectedDiff = 'easy';
   let offsetMs = clampOffset(load<number>('offset', 0));
   let lyricsOn = load<boolean>('lyrics', true);
-  // デバッグモード（設定モーダル内のユーザー向け設定。?debug=1 のテスト用入口や5回タップのパネルとは別物）。
-  // オンにしたときだけオートプレイのトグルを出す
-  let debugModeOn = load<boolean>('debugMode', false);
+  // オートプレイは設定には置かず、バージョン表示の5回タップで出るデバッグモードの
+  // パネルから切り替える（オーナー指示 2026-11-20）。効くのはデバッグモード中だけ
   let autoplayOn = load<boolean>('autoplay', false);
   /** ベスト記録: スコアと、その記録を出した回のランクを一緒に持つ */
   interface BestEntry {
@@ -230,9 +237,6 @@ function initGameMode(): { enter: () => void } {
     renderToggle('sound-button', isSoundOn());
     renderToggle('vibrate-button', isVibrateOn());
     renderToggle('lyrics-button', lyricsOn);
-    renderToggle('debug-button', debugModeOn);
-    renderToggle('autoplay-button', autoplayOn);
-    $('autoplay-block').hidden = !debugModeOn;
     $('lyrics').hidden = !lyricsOn;
     setData('song', selectedSong);
     setData('difficulty', selectedDiff);
@@ -240,7 +244,7 @@ function initGameMode(): { enter: () => void } {
     setData('sound', isSoundOn() ? 'on' : 'off');
     setData('vibrate', isVibrateOn() ? 'on' : 'off');
     setData('lyrics', lyricsOn ? 'on' : 'off');
-    setData('debugMode', debugModeOn ? 'on' : 'off');
+    setData('debugMode', isDebug() ? 'on' : 'off');
     setData('autoplay', autoplayOn ? 'on' : 'off');
   }
 
@@ -270,18 +274,25 @@ function initGameMode(): { enter: () => void } {
     renderMenu();
     playUiClick();
   });
-  $('debug-button').addEventListener('click', () => {
-    debugModeOn = !debugModeOn;
-    save('debugMode', debugModeOn);
-    renderMenu();
-    playUiClick();
-  });
-  $('autoplay-button').addEventListener('click', () => {
-    autoplayOn = !autoplayOn;
-    save('autoplay', autoplayOn);
-    renderMenu();
-    playUiClick();
-  });
+  // オートプレイの切り替えはデバッグパネル側（バージョン表示の5回タップで出る）に置く。
+  // パネルのボタンは押すたびにラベルを描き直して、今の状態が見えるようにする
+  const autoplayAction: DebugAction = {
+    label: '自動',
+    title: 'オートプレイ（チーマイモード）',
+    run: () => {
+      autoplayOn = !autoplayOn;
+      save('autoplay', autoplayOn);
+      syncAutoplayAction();
+      refreshDebugPanel();
+      renderMenu();
+    },
+  };
+  function syncAutoplayAction(): void {
+    autoplayAction.label = autoplayOn ? '自動✓' : '自動';
+    autoplayAction.title = `オートプレイ（チーマイモード）: ${autoplayOn ? 'オン' : 'オフ'}。全ノーツを自動で PERFECT にします。結果はベストスコアに残りません`;
+  }
+  syncAutoplayAction();
+  registerDebugActions([autoplayAction]);
 
   // ---- 設定モーダル ----
   const settingsDialog = $<HTMLDialogElement>('settings-dialog');
@@ -455,62 +466,12 @@ function initGameMode(): { enter: () => void } {
     }
   }
 
-  // ---- フルコンボ演出（演奏の締め。結果画面の前に挟む） ----
-  /**
-   * 演出の滞在時間（ms）。ボイス（約1.6秒）＋余韻で 2.8 秒。
-   * CSS の fullcombo-fade / fullcombo-zoom（どちらも 2.8 秒）と合わせる。
-   */
-  const FULLCOMBO_SHOW_MS = 2800;
-  let fullComboTimer = 0;
-  /** 演出のあとに結果画面へ渡す、保留中の結果 */
-  let pendingResult: GameResult | null = null;
-  // 絵は素材スロット（presentation.ts の FULLCOMBO_IMAGE_URL）。未設定なら絵なしで出す
-  {
-    const img = $<HTMLImageElement>('fullcombo-img');
-    if (FULLCOMBO_IMAGE_URL) img.src = FULLCOMBO_IMAGE_URL;
-    else img.hidden = true;
-  }
-
-  function showFullCombo(result: GameResult): void {
-    pendingResult = result;
-    const el = $('fullcombo');
-    $('fullcombo-combo').textContent = String(result.maxCombo);
-    $('game-live').textContent = `フルコンボ！ ${result.maxCombo}コンボ`;
-    setData('fullcombo', 'show');
-    // フェードと文字の弾けを最初から再生する
-    el.classList.remove('show');
-    el.hidden = false;
-    void el.offsetWidth;
-    el.classList.add('show');
-    // ボイスを設定してあれば、表示と同期して鳴らす（効果音設定には従わない。sound.ts 参照）
-    void playFullComboVoice(FULLCOMBO_VOICE_URL);
-    window.clearTimeout(fullComboTimer);
-    fullComboTimer = window.setTimeout(endFullCombo, FULLCOMBO_SHOW_MS);
-  }
-
-  /** 演出を終えて（時間切れ or タップでスキップ）、保留中の結果画面へ進む */
-  function endFullCombo(): void {
-    window.clearTimeout(fullComboTimer);
-    const el = $('fullcombo');
-    if (el.hidden) return;
-    el.hidden = true;
-    el.classList.remove('show');
-    setData('fullcombo', 'hide');
-    const result = pendingResult;
-    pendingResult = null;
-    if (result) showResult(result);
-  }
-  // タップで演出をスキップして結果へ進める
-  $('fullcombo').addEventListener('pointerdown', endFullCombo);
-
   // ---- ゲーム ----
   const game = new Game($<HTMLCanvasElement>('game-canvas'), {
     onFinish: (result) => {
-      // フルコンボ（ミス0）のときだけ、結果画面の前に締めの演出を挟む。
-      // 通常クリアは従来どおり結果画面へ直行する。オートプレイは常時フルコンボに
-      // なるが、演出は通常演奏と同じに出す（結果の保存ルールは showResult 側で不変）
-      if (isFullCombo(result.counts)) showFullCombo(result);
-      else showResult(result);
+      // フルコンボでも締めの演出は挟まず、結果へ直行する（フルコンボの印は
+      // 結果カードの中に出す。オーナー指示 2026-11-20）
+      showResult(result);
     },
     onAbort: () => {
       show('menu');
@@ -526,8 +487,6 @@ function initGameMode(): { enter: () => void } {
   async function startGame(): Promise<void> {
     // スタートボタンのタップ（ジェスチャ）の中で、await より先に音声を unlock する（iPhone 対策）
     unlockAudio();
-    // フルコンボ演出のボイスを先読みしておく（演奏の締めで読み込み待ちにならないように）
-    preloadFullComboVoice(FULLCOMBO_VOICE_URL);
     // ヒット音のサンプル素材も先読みしておく（最初のヒットで読み込み待ちにならないように）
     preloadHitSample();
     const entry = songById(selectedSong);
@@ -540,7 +499,7 @@ function initGameMode(): { enter: () => void } {
     try {
       show('game');
       // オートプレイはデバッグモードがオンのときだけ効く
-      await game.start(entry, selectedDiff, offsetMs, debugModeOn && autoplayOn);
+      await game.start(entry, selectedDiff, offsetMs, isDebug() && autoplayOn);
       status.textContent = '';
     } catch {
       show('menu');
@@ -564,13 +523,14 @@ function initGameMode(): { enter: () => void } {
     }
     $('result-rank').textContent = result.rank;
     $('result-autoplay').hidden = !result.autoplay;
+    $('result-fullcombo').hidden = !isFullCombo(result.counts);
     $('result-song').textContent = `${result.songTitle}（${DIFFICULTIES[lastDiff].label}）`;
     $('result-score').textContent = String(result.score);
     $('result-best').textContent = String(best);
     $('result-counts').textContent = `PERFECT ${result.counts.perfect} / GREAT ${result.counts.great} / GOOD ${result.counts.good} / MISS ${result.counts.miss}`;
     $('result-accuracy').textContent = result.accuracy.toFixed(1);
     $('result-combo').textContent = String(result.maxCombo);
-    $('game-live').textContent = `結果: ランク${result.rank}、スコア${result.score}、精度${result.accuracy.toFixed(1)}%${result.autoplay ? '（オートプレイ）' : ''}`;
+    $('game-live').textContent = `結果: ランク${result.rank}、スコア${result.score}、精度${result.accuracy.toFixed(1)}%${isFullCombo(result.counts) ? '、フルコンボ' : ''}${result.autoplay ? '（オートプレイ）' : ''}`;
     show('result');
     renderMenu();
   }
@@ -598,7 +558,7 @@ function initGameMode(): { enter: () => void } {
       sound: isSoundOn(),
       vibrate: isVibrateOn(),
       lyrics: lyricsOn,
-      debugMode: debugModeOn,
+      debugMode: isDebug(),
       autoplay: autoplayOn,
       latency: latencyUi,
       gameAutoplay: game.isAutoplay,
@@ -617,12 +577,15 @@ function initGameMode(): { enter: () => void } {
         save('lyrics', lyricsOn);
       }
       if (typeof patch.debugMode === 'boolean') {
-        debugModeOn = patch.debugMode;
-        save('debugMode', debugModeOn);
+        // デバッグモードは CD 側と共有の旗（バージョン表示の5回タップと同じもの）
+        setDebug(patch.debugMode);
+        refreshDebugPanel();
       }
       if (typeof patch.autoplay === 'boolean') {
         autoplayOn = patch.autoplay;
         save('autoplay', autoplayOn);
+        syncAutoplayAction();
+        refreshDebugPanel();
       }
       renderMenu();
     },
