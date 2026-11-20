@@ -24,6 +24,23 @@ const SCREENS = [
       await page.click('#install-open-cover');
     },
   },
+  {
+    name: 'game-menu',
+    open: async (page) => {
+      await page.click('#btn-open-game');
+      await page.waitForTimeout(400);
+    },
+  },
+  {
+    name: 'game-play',
+    open: async (page) => {
+      await page.click('#btn-open-game');
+      await page.click('#start-button');
+      // 音源の読み込みと演奏開始を待ってから撮る
+      await page.waitForFunction("document.body.dataset.game === 'playing'", null, { timeout: 30_000 });
+      await page.waitForTimeout(1200);
+    },
+  },
 ];
 
 /** 撮る大きさ。dark はダークモード（端末設定に従う配色のアプリで確認する）。 */
