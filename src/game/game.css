@@ -871,13 +871,6 @@
   margin: 16px 0 0;
 }
 
-/* 設定ダイアログ下部の版数表示（CD 側の裏表紙の版数表示と対） */#view-game .dialog-version {
-  margin: 18px 0 2px;
-  text-align: center;
-  font-size: 0.78rem;
-  letter-spacing: 0.08em;
-  color: var(--muted);
-}
 
 /* 遅延チェックの画面（設定モーダルの上に重ねて開く） */#view-game .latency-flash {
   width: 96px;
