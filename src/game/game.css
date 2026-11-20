@@ -177,8 +177,16 @@
 #view-game .carousel-track {
   display: flex;
   gap: 14px;
-  /* 先頭と末尾のスライドも中央に来られるよう、両端に余白を置く */
-  padding: 0 13%;
+}
+
+/* 先頭と末尾のスライドも中央に来られるよう、両端にスペーサーを置く。
+   以前はトラックの padding 13% で賄っていたが、padding の % はビューポート幅基準、
+   スライドの flex-basis 74% はトラックの内容幅基準で、両端では中心がずれていた
+   （オーナー指摘 2026-11-20）。スペーサーなら両方ともトラック内容幅基準で揃う */
+#view-game .carousel-track::before,
+#view-game .carousel-track::after {
+  content: '';
+  flex: 0 0 13%;
 }
 
 #view-game .carousel-slide {
@@ -585,22 +593,28 @@
   touch-action: none;
 }
 
-/* 歌詞（3行）。ジャケット（画面幅いっぱいの正方形）のすぐ下の帯に出す。
-   横長画面では正方形の一辺は画面の高さになるので、min() で追随する。タップは透過 */#view-game .lyrics {
+/* ノーツ専用キャンバス（歌詞より手前。タップは透過し、本体キャンバスが受ける） */#view-game #notes-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 5;
+}
+
+/* 歌詞（3行）。ジャケット（画面幅いっぱいの正方形）のすぐ下に出す。
+   横長画面では正方形の一辺は画面の高さになるので、min() で追随する。タップは透過。
+   下敷き（帯の背景）は置かない（オーナー指示 2026-11-20）: 背景はほぼ黒で文字の
+   影だけで読め、下敷きがあると後ろを流れる音符が隠れてしまう。音符は専用
+   キャンバスで歌詞より手前に描かれる */#view-game .lyrics {
   position: absolute;
   left: 8px;
   right: 8px;
   top: calc(min(100vw, 100dvh) + 10px);
   padding: 8px 10px;
-  border-radius: 14px;
-  background: rgb(5 8 20 / 0.45);
   text-align: center;
   pointer-events: none;
   z-index: 4;
-}
-
-#view-game .lyrics.lyrics-empty {
-  background: transparent;
 }
 
 #view-game .lyric-line {
@@ -652,7 +666,7 @@
   align-items: center;
   gap: 4px;
   pointer-events: none;
-  z-index: 5;
+  z-index: 6;
 }
 
 /* 出現中はフェードイン→静止→フェードアウトを 1 本のアニメーションで通す。

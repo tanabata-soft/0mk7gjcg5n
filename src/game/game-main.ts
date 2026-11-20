@@ -467,8 +467,6 @@ function initGameMode(): { enter: () => void } {
     const lines = lastEntry.lyrics;
     const cur = $('lyric-current');
     const text = index >= 0 ? (lines[index]?.text ?? '') : '';
-    // 歌い出し前（全行が空）では帯の背景も消す（空の帯だけが残らないように）
-    $('lyrics').classList.toggle('lyrics-empty', index < 0);
     $('lyric-prev').textContent = index > 0 ? lines[index - 1].text : '';
     cur.textContent = text;
     $('lyric-next').textContent = index >= 0 && index + 1 < lines.length ? lines[index + 1].text : '';
@@ -480,7 +478,7 @@ function initGameMode(): { enter: () => void } {
   }
 
   // ---- ゲーム ----
-  const game = new Game($<HTMLCanvasElement>('game-canvas'), {
+  const game = new Game($<HTMLCanvasElement>('game-canvas'), $<HTMLCanvasElement>('notes-canvas'), {
     onFinish: (result) => {
       // フルコンボでも締めの演出は挟まず、結果へ直行する（フルコンボの印は
       // 結果カードの中に出す。オーナー指示 2026-11-20）

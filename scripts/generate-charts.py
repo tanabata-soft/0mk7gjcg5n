@@ -67,6 +67,7 @@ v3 の変更点（設計の根拠は docs/CHART-DESIGN.md）:
 使い方: .venv/bin/python scripts/generate-charts.py
 前提: .venv に librosa、PATH に ffmpeg（mp3 を wav に変換するため）
 """
+import bisect
 import json
 import random
 import subprocess
@@ -555,18 +556,20 @@ def plan_phrase(rng, phrase, unit_energy, unit_gate, unit_fever, is_chorus):
     unit_fever(unit) -> bool（FEVER 区間のユニットか）。
     unit は (bar, half) のタプル。
 
-    FEVER 区間は密度を上げる（オーナー指示）: 計画エネルギーを +0.30 底上げして
-    上の段に寄せ、16分パターン（burst）の確率も 0.42 → 0.62 に上げる。底上げは
+    FEVER 区間は密度を上げる（オーナー指示）: 計画エネルギーを +0.45 底上げして
+    上の段に寄せ、16分パターン（burst）の確率も 0.42 → 0.75 に上げる。底上げは
     計画だけに効かせ、ノーツに残る energy（間引きの優先度など）は実測のままにする。
     難易度の下位（normal / easy）は間引きで自然に増え方が緩やかになる（拍位置だけの
     easy は控えめ、8分位置の normal は中くらい、全部残る hard が一番増える）。
+    （底上げ量と burst 確率は 2026-11-20 にオーナー指示「サビの譜面をもっと増やす」
+    で +0.30 → +0.45、0.62 → 0.75 に引き上げた。それ以前は Kiso v5 と同じ値）
     """
     units = [(bar, half) for bar in phrase for half in (0, 1)]
     plan = []
     for unit in units:
         e = unit_energy(unit)
         fever = unit_fever(unit)
-        pe = min(1.0, e + 0.30) if fever else e
+        pe = min(1.0, e + 0.45) if fever else e
         r = rng.random()
         if pe < 0.28:
             name = "sparse" if r < 0.45 else rng.choice(["wave", "stair"])
@@ -580,7 +583,7 @@ def plan_phrase(rng, phrase, unit_energy, unit_gate, unit_fever, is_chorus):
             else:
                 name = rng.choice(["stair", "wave", "alt", "cross", "wave", "stair"])
         else:
-            burst_p = 0.62 if fever else 0.42
+            burst_p = 0.75 if fever else 0.42
             if r < burst_p and unit_gate(unit, "burst"):
                 name = rng.choice(["trill", "roll", "wave16"])
             elif r < burst_p + 0.045 and unit_gate(unit, "jack"):
@@ -1103,7 +1106,7 @@ def process_song(song_id, meta, y, sr):
     def unit_gate(unit, kind, layer=None, burst_basis=None):
         us = unit_slots(unit)
         # FEVER 区間はゲートのエネルギー条件も計画と同じく底上げする（強さの条件は不変）
-        ge = unit_energy(unit) + (0.30 if unit_fever(unit) else 0.0)
+        ge = unit_energy(unit) + (0.45 if unit_fever(unit) else 0.0)
         # v5（V5-2）: 主レイヤーが決まっているフレーズでは、その strength
         # （slot["eff"]、全帯域分布へ写像済み）をゲートの物差しにする
         key = "eff" if layer is not None else "strength"
@@ -1130,6 +1133,13 @@ def process_song(song_id, meta, y, sr):
                     return True
                 if burst_basis == "main65":
                     return float(np.mean([s["eff"] for s in odd_slots])) >= thr[65]
+                # サビでは主レイヤー（この盤の3曲ではボーカル）の16分そのものが
+                # 根拠になる: 全帯域やドラムの強さで測ると、裏の音が薄い歌の16分が
+                # 通らずサビに16分パターンがほぼ置けなかった（実測: 京葉線の午後は
+                # サビのゲート到達11件すべてがこの根拠不足で不合格だった）。
+                # サビに限って主レイヤーの eff でも通す（オーナー指示 2026-11-20）
+                if unit_fever(unit) and float(np.mean([s["eff"] for s in odd_slots])) >= thr[45]:
+                    return True
             return False
         if kind == "jack":
             even = [s[key] for r, s in enumerate(us) if s is not None and r in (0, 2, 4)]
@@ -1396,10 +1406,16 @@ def process_song(song_id, meta, y, sr):
         elif n["pattern"] in BURST_PATTERNS:
             if n["unit_rel"] == 0:
                 normal_ids.add(n["id"])
+            elif n["fever"] and n["sub"] % 2 == 0:
+                # サビの16分パターンは、8分位置（sub 偶数）の音も normal に
+                # 残す（通常はユニット頭だけ）。サビの密度上げを hard だけでなく
+                # normal／easy にも効かせるため（オーナー指示 2026-11-20）。
+                # 16分位置そのものは従来どおり hard 専用のまま
+                normal_ids.add(n["id"])
         elif n["sub"] % 2 == 0:
             normal_ids.add(n["id"])
 
-    def thin(ids, cap, min_gap):
+    def thin(ids, cap, min_gap, fever_w=1.2):
         """レーンごとに強さ順の列を持ち、往復で均等に拾って間引く。
 
         候補プール自体が偏っていても分布が 18〜32% に収まるよう、総数は
@@ -1408,10 +1424,10 @@ def process_song(song_id, meta, y, sr):
         """
         by_lane = {
             # FEVER 区間のノーツは少し優先して残す（密度上げを下位難易度にも効かせる。
-            # 同時押し候補の ×1.25 と同じ考え方で、こちらは ×1.2 に抑える）
+            # 同時押し候補の ×1.25 と同じ考え方で、こちらは ×fever_w に抑える）
             l: sorted(
                 (notes_by_id[i] for i in ids if notes_by_id[i]["lane"] == l),
-                key=lambda n: -(n["strength"] * (1.2 if n["fever"] else 1.0)),
+                key=lambda n: -(n["strength"] * (fever_w if n["fever"] else 1.0)),
             )
             for l in range(4)
         }
@@ -1475,8 +1491,6 @@ def process_song(song_id, meta, y, sr):
                     break
                 a, b = worst
                 mid = (a + b) / 2
-                prev_note = max((n for n in kept_notes if n["time_ms"] <= a), key=lambda n: n["time_ms"], default=None)
-                next_note = min((n for n in kept_notes if n["time_ms"] >= b), key=lambda n: n["time_ms"], default=None)
                 total = len(ids)
                 lane_counts = [sum(1 for n in kept_notes if n["lane"] == l) for l in range(4)]
                 cands = []
@@ -1489,19 +1503,34 @@ def process_song(song_id, meta, y, sr):
                     shares = [
                         (lane_counts[l] + (1 if l == n["lane"] else 0)) / (total + 1) for l in range(4)
                     ]
-                    if max(shares) > 0.30 or min(shares) < 0.185:
+                    # 検証範囲（0.18〜0.32）の外に出る候補だけを避ける。以前は
+                    # 内側の 0.185〜0.30 で見ていたが、既存の分布が内側を外れて
+                    # いると無関係のレーンの候補まで全部落ち、サビの空白が
+                    # 埋まらないことがあった（umi easy 第2サビで実例）
+                    if max(shares) > 0.32 or min(shares) < 0.18:
                         continue
-                    # 前後が同じレーンだと、戻した途端に同一レーン3連になる
+                    # 戻した途端に同一レーン3連になる候補は避ける。3連は
+                    # 「全ノーツを時刻順に並べた列で、同レーンが3つ連続する」こと
+                    # なので、挿入位置の前後2つ（レーン不問）と候補のレーンが
+                    # 揃う形（末尾型・先頭型・サンドイッチ型）を見分ける
+                    seq = sorted(kept_notes, key=lambda k: (k["time_ms"], k["lane"]))
+                    idx = bisect.bisect_left([(k["time_ms"], k["lane"]) for k in seq], (t, n["lane"]))
+                    p1 = seq[idx - 1] if idx >= 1 else None
+                    p2 = seq[idx - 2] if idx >= 2 else None
+                    q1 = seq[idx] if idx < len(seq) else None
+                    q2 = seq[idx + 1] if idx + 1 < len(seq) else None
+                    L = n["lane"]
                     if (
-                        prev_note is not None
-                        and next_note is not None
-                        and prev_note["lane"] == n["lane"] == next_note["lane"]
+                        (p1 is not None and p2 is not None and p1["lane"] == L == p2["lane"])
+                        or (q1 is not None and q2 is not None and q1["lane"] == L == q2["lane"])
+                        or (p1 is not None and q1 is not None and p1["lane"] == L == q1["lane"])
                     ):
                         continue
                     cands.append((abs(t - mid), -n["strength"], n))
                 if not cands:
                     break
-                cands.sort(key=lambda c: (c[0], c[1]))
+                # 拍位置（sub==0）の候補を優先し、その中で空白の中央寄り・強い順
+                cands.sort(key=lambda c: (0 if c[2]["sub"] == 0 else 1, c[0], c[1]))
                 chosen = cands[0][2]
                 ids.add(chosen["id"])
                 pool.remove(chosen)
@@ -1510,7 +1539,9 @@ def process_song(song_id, meta, y, sr):
     normal_pool = set(normal_ids)
     normal_ids = thin(normal_ids, NORMAL_CAP, 150)
     easy_ids = {i for i in normal_ids if notes_by_id[i]["sub"] == 0 and notes_by_id[i]["kind"] != "chord"}
-    easy_ids = thin(easy_ids, EASY_CAP, 260)
+    # easy は拍位置のみで候補が少なく、サビが16分中心になるとサビの取り分が
+    # 構造的に減るため、FEVER 優先の重みを normal より強める（2026-11-20）
+    easy_ids = thin(easy_ids, EASY_CAP, 260, fever_w=1.6)
     id_sets = {"hard": hard_ids, "normal": normal_ids, "easy": easy_ids}
     # 同一レーン修復と両親指修復は、片方の「落とす」が他方の違反（連の接続）を
     # 作ることがあるので、どちらも動かなくなるまで交互に回す（落とすだけなので収束する）
@@ -1527,10 +1558,13 @@ def process_song(song_id, meta, y, sr):
     # 候補は確定した上位難易度の集合の中にあるものだけ＝入れ子を保つ）
     id_sets["hard"] = fill_fever_gaps(id_sets["hard"], set(notes_by_id), HARD_CAP, 150)
     id_sets["normal"] = fill_fever_gaps(id_sets["normal"], normal_pool & id_sets["hard"], NORMAL_CAP, 150)
+    # easy の埋め戻し候補: 原則は拍位置（sub==0）のみ。ただしサビの長い空白は
+    # 拍位置だけでは埋まらないことがある（候補が同一レーン3連の回避に引っかかる等）
+    # ため、sub==2（8分裏）も候補に入れ、fill 側で sub==0 を優先して使う
     easy_pool = {
         i
         for i in id_sets["normal"]
-        if notes_by_id[i]["sub"] == 0 and notes_by_id[i]["kind"] != "chord"
+        if notes_by_id[i]["sub"] in (0, 2) and notes_by_id[i]["kind"] != "chord"
     }
     id_sets["easy"] = fill_fever_gaps(id_sets["easy"], easy_pool, EASY_CAP, 260)
 

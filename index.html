@@ -134,6 +134,10 @@
             <p class="lyric-line lyric-current" id="lyric-current"></p>
             <p class="lyric-line lyric-next" id="lyric-next"></p>
           </div>
+          <!-- ノーツ専用キャンバス: 歌詞より手前に音符を出すため、本体キャンバスから
+               ノーツとヒット演出だけを分離して歌詞の上に重ねる（オーナー指示 2026-11-20）。
+               タップは透過させ、本体キャンバス側の判定に委ねる -->
+          <canvas id="notes-canvas" aria-hidden="true"></canvas>
           <!-- コンボの節目で登場するコンボ演出のセリフ（NK-S003 では素材スロットが空のため出ない） -->
           <div id="combo-pop" class="combo-pop" hidden aria-hidden="true">
             <p class="combo-bubble" id="combo-line"></p>
