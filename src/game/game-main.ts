@@ -370,7 +370,7 @@ function initGameMode(): { enter: () => void } {
   }
   $('settings-open').addEventListener('click', openSettings);
   $('settings-close').addEventListener('click', closeSettings);
-  $('settings-close-bottom').addEventListener('click', closeSettings);
+  $('game-version').textContent = __APP_VERSION__;
   settingsDialog.addEventListener('click', (e) => {
     // 背景（ダイアログ自身の余白部分）のタップで閉じる
     if (e.target === settingsDialog) closeSettings();
