@@ -42,7 +42,33 @@
   display: none !important;
 }
 
+#view-game {
+  background: #05060a;
+}
+
+/* メニューの背景: 選んでいる曲のジャケットをぼかして全面に敷く（オーナー承認の見た目 2026-11-20）。
+   中身（.game-main）より後ろに置き、ゲーム画面（position: fixed）が開けば隠れる */
+#view-game .menu-bg {
+  position: fixed;
+  inset: -48px;
+  z-index: 0;
+  background-size: cover;
+  background-position: center 22%;
+  filter: blur(34px) saturate(1.3) brightness(0.5);
+  transition: opacity 0.35s ease;
+  pointer-events: none;
+}
+
+#view-game .menu-bg::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, rgb(5 6 12 / 0.38), rgb(5 6 12 / 0.3) 45%, rgb(5 6 12 / 0.66));
+}
+
 #view-game .game-main {
+  position: relative;
+  z-index: 1;
   max-width: 480px;
   margin: 0 auto;
   /* iPhone のノッチ・ホームバーを避ける */
@@ -50,58 +76,72 @@
     max(24px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
 }
 
-/* ブランド表示（ポスターの題字） */#view-game .brand {
-  text-align: center;
+/* ブランド表示（ポスターの題字）。左寄せの細字＋グラデーションの短い罫（オーナー承認の見た目 2026-11-20） */#view-game .brand {
+  text-align: left;
   margin: 4px 0 14px;
 }
 
-/* 題字の上の行: 英字ロゴを中央に置く（設定ボタンは画面下部のフッターにある） */#view-game .brand-top {
+/* 題字の上の行: 英字ロゴを左に置く（設定ボタンは画面下部のフッターにある） */#view-game .brand-top {
   display: flex;
   align-items: center;
-  justify-content: center;
-  min-height: 44px;
+  justify-content: flex-start;
+  min-height: 24px;
 }
 
 #view-game .brand-en {
   margin: 0;
-  font-size: 0.72rem;
+  font-size: 0.66rem;
   font-weight: 700;
-  letter-spacing: 0.42em;
-  text-indent: 0.42em;
-  color: var(--accent);
-  text-shadow: 0 0 10px rgb(57 208 255 / 0.7);
+  letter-spacing: 0.5em;
+  color: #67e8f9;
+  text-shadow: 0 1px 8px rgb(0 0 0 / 0.6);
 }
 
-/* メニュー下部のフッター（設定と「戻る」を横並びにする） */#view-game .menu-footer {
+/* メニュー下部のフッター（設定と「戻る」を横並びにする）。文字だけの控えめなボタン */#view-game .menu-footer {
   display: flex;
-  gap: 10px;
+  justify-content: space-between;
   margin-top: 28px;
 }
 
-/* 設定・戻るボタン（メニュー下部のフッター）。横幅のある控えめなボタンにして、ファーストビューの主役にしない */#view-game .settings-open {
+/* 設定・戻るボタン（メニュー下部のフッター） */#view-game .settings-open {
   display: flex;
-  flex: 1 1 0;
+  flex: 0 0 auto;
   align-items: center;
-  justify-content: center;
   gap: 6px;
   margin: 0;
-  padding: 10px 16px;
+  padding: 10px 2px;
   min-height: 48px;
-  border-radius: 12px;
-  border: 1px solid var(--border);
-  background: var(--surface);
-  font-size: 0.9rem;
-  font-weight: 700;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  font-size: 0.85rem;
+  font-weight: 400;
+  letter-spacing: 0.22em;
+  color: #c3c6d8;
   white-space: nowrap;
 }
 
 #view-game h1 {
-  font-size: 1.65rem;
-  margin: 2px 0 0;
-  letter-spacing: 0.06em;
-  text-shadow:
-    0 0 12px rgb(255 77 141 / 0.65),
-    0 0 36px rgb(124 77 255 / 0.5);
+  font-size: 1.7rem;
+  font-weight: 300;
+  margin: 8px 0 0;
+  letter-spacing: 0.28em;
+  text-shadow: 0 2px 14px rgb(0 0 0 / 0.5);
+}
+
+#view-game h1 b {
+  font-weight: 700;
+}
+
+/* 題字の下のグラデーションの短い罫 */
+#view-game h1::after {
+  content: '';
+  display: block;
+  width: 44px;
+  height: 2px;
+  margin-top: 12px;
+  background: linear-gradient(90deg, var(--primary), var(--primary-2));
+  box-shadow: 0 0 12px rgb(255 77 141 / 0.8);
 }
 
 #view-game .section-title {
@@ -147,7 +187,7 @@
   scroll-snap-align: center;
   margin: 0;
   padding: 0;
-  border-radius: 20px;
+  border-radius: 6px;
   overflow: hidden;
   border: 1px solid var(--border);
   background: var(--surface);
@@ -166,9 +206,9 @@
   transform: none;
   border-color: rgb(255 77 141 / 0.45);
   box-shadow:
-    0 0 0 1px rgb(124 77 255 / 0.25),
-    0 0 28px rgb(255 77 141 / 0.28),
-    0 14px 34px rgb(0 0 0 / 0.45);
+    0 0 0 1px rgb(0 0 0 / 0.6),
+    0 14px 44px rgb(255 77 141 / 0.22),
+    0 24px 60px rgb(0 0 0 / 0.7);
 }
 
 /* ジャケットは縦長（4/5）の切り抜き。正方形の絵は横だけが切り取られ、
@@ -267,10 +307,10 @@
   position: absolute;
   inset: 0;
   margin: auto;
-  width: 9px;
-  height: 9px;
+  width: 6px;
+  height: 6px;
   border-radius: 50%;
-  background: var(--border);
+  background: rgb(255 255 255 / 0.28);
 }
 
 #view-game .carousel-dot[aria-current='true']::after {
@@ -355,42 +395,53 @@
   font-weight: 700;
 }
 
-/* 難易度はピル型のセグメントボタン。選択中はグラデーション＋発光 */#view-game .diff-row {
+/* 難易度は下線タブ。選択中は白＋太字＋ピンクの下線（オーナー承認の見た目 2026-11-20） */#view-game .diff-row {
   margin-top: 14px;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  padding: 4px;
-  gap: 4px;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  padding: 0;
+  gap: 0;
 }
 
 #view-game .diff-row .opt {
   margin: 0;
-  border: 0;
-  border-radius: 999px;
+  border: none;
+  border-bottom: 1px solid rgb(255 255 255 / 0.2);
+  border-radius: 0;
   background: transparent;
   color: var(--muted);
+  letter-spacing: 0.18em;
+  padding-bottom: 9px;
+  box-shadow: none;
 }
 
 #view-game .diff-row .opt[aria-pressed='true'] {
-  background: linear-gradient(120deg, var(--primary), var(--primary-2));
-  box-shadow: 0 0 14px rgb(255 77 141 / 0.55);
-  color: var(--primary-text);
+  background: transparent;
+  border-bottom: 2px solid var(--primary);
+  box-shadow: 0 12px 14px -12px rgb(255 77 141 / 0.9);
+  color: var(--text);
+  font-weight: 700;
 }
 
-#view-game .go {
+/* スタートは縁だけ光る輪郭ボタン（オーナー承認の見た目 2026-11-20）。
+   button.primary（塗りつぶし）より優先させるため要素名まで含めたセレクタにする */
+#view-game button.go {
   display: block;
   width: 100%;
-  margin-top: 16px;
+  margin-top: 22px;
   padding: 15px;
-  font-size: 1.25rem;
-  letter-spacing: 0.14em;
-  border: 0;
+  font-size: 1rem;
+  font-weight: 400;
+  letter-spacing: 0.5em;
+  text-indent: 0.5em;
+  color: #ff7eb0;
+  border: 1px solid rgb(255 77 141 / 0.75);
   border-radius: 999px;
-  background: linear-gradient(120deg, var(--primary), var(--primary-2));
+  background: rgb(5 6 12 / 0.3);
   box-shadow:
-    0 0 22px rgb(255 77 141 / 0.5),
-    0 8px 22px rgb(0 0 0 / 0.4);
+    0 0 22px rgb(255 77 141 / 0.28),
+    inset 0 0 18px rgb(255 77 141 / 0.1);
 }
 
 #view-game .howto {
@@ -450,30 +501,42 @@
   box-shadow: 0 0 10px rgb(255 77 141 / 0.8);
 }
 
-/* ベストスコアは曲選択画面の難易度の上に、専用の領域（パネル）で出す。
-   左にランク文字、右に「曲名・難易度 のベストスコア」のラベルとスコア（設定には置かない） */
+/* ベストスコアは曲選択画面の難易度の上に、専用の領域で出す。
+   罫線だけの帯＋輪郭だけの金ランク＋BEST のタグ（オーナー承認の見た目 2026-11-20。設定には置かない） */
 #view-game .best-panel {
   display: flex;
   align-items: center;
-  gap: 14px;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 14px;
-  padding: 8px 16px;
+  gap: 16px;
+  background: rgb(5 6 12 / 0.3);
+  border-top: 1px solid rgb(255 255 255 / 0.22);
+  border-bottom: 1px solid rgb(255 255 255 / 0.22);
+  padding: 10px 8px;
   margin: 12px 0 10px;
 }
 
 #view-game .best-rank {
-  font-size: 2rem;
+  font-size: 2.1rem;
   font-weight: 800;
   line-height: 1;
-  color: var(--gold);
-  min-width: 2.4rem;
+  color: transparent;
+  -webkit-text-stroke: 1.2px var(--gold);
+  min-width: 2.7rem;
   text-align: center;
 }
 
 #view-game .best-rank.none {
-  color: var(--muted);
+  -webkit-text-stroke-color: rgb(255 255 255 / 0.35);
+}
+
+#view-game .best-tag {
+  margin-left: auto;
+  font-size: 0.56rem;
+  letter-spacing: 0.3em;
+  text-indent: 0.3em;
+  color: var(--gold);
+  border: 1px solid rgb(255 209 102 / 0.5);
+  padding: 3px 7px;
+  border-radius: 3px;
 }
 
 #view-game .best-meta {

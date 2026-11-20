@@ -53,6 +53,8 @@ function initGameMode(): { enter: () => void } {
   // オートプレイは設定には置かず、バージョン表示の5回タップで出るデバッグモードの
   // パネルから切り替える（オーナー指示 2026-11-20）。効くのはデバッグモード中だけ
   let autoplayOn = load<boolean>('autoplay', false);
+  // メニューの背景（選曲のジャケットのぼかし）。差し替え済みの曲を覚えて、無駄なフェードをしない
+  let menuBgSong = '';
   /** ベスト記録: スコアと、その記録を出した回のランクを一緒に持つ */
   interface BestEntry {
     score: number;
@@ -233,6 +235,18 @@ function initGameMode(): { enter: () => void } {
     const rankEl = $('menu-best-rank');
     rankEl.textContent = rank ?? '—';
     rankEl.classList.toggle('none', !rank);
+    $('best-tag').hidden = bestOf(selectedSong, selectedDiff) <= 0;
+    // 背景のぼかしジャケットを選曲に追随させる（曲が変わった時だけ、薄くフェードして差し替える）
+    if (menuBgSong !== selectedSong) {
+      menuBgSong = selectedSong;
+      const bg = $('menu-bg');
+      bg.style.opacity = '0';
+      const jacketUrl = songById(selectedSong).jacketUrl;
+      window.setTimeout(() => {
+        bg.style.backgroundImage = `url("${jacketUrl}")`;
+        bg.style.opacity = '1';
+      }, 180);
+    }
     $('offset-value').textContent = `${offsetMs > 0 ? '+' : ''}${offsetMs}ms`;
     renderToggle('sound-button', isSoundOn());
     renderToggle('vibrate-button', isVibrateOn());
