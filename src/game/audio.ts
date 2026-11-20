@@ -23,6 +23,33 @@ let master: GainNode | undefined;
 const buffers = new Map<string, AudioBuffer>();
 let current: AudioBufferSourceNode | undefined;
 let unlocked = false;
+/** AudioContext の世代。作り直すたびに進む（作り直しに追随してノードを作り直す側が参照する） */
+let generation = 0;
+
+export const audioGeneration = (): number => generation;
+
+/**
+ * AudioContext を作り直す。バックグラウンド復帰などで iOS の AudioContext が
+ * 壊れたまま（resume しても running に戻らず、時計が凍る）になることがあり、
+ * その場合は同じ context を起こし続けても直らないため、新しい context に替える。
+ * デコード済みバッファは context に依存しないので保持する。ノード類（マスターや
+ * sound.ts のヒット音バス）は世代を見て作り直すこと。
+ */
+export function recreateAudioContext(): void {
+  const old = ctx;
+  ctx = undefined;
+  master = undefined;
+  current = undefined;
+  unlocked = false;
+  generation++;
+  if (old) {
+    try {
+      void old.close().catch(() => undefined);
+    } catch {
+      // 閉じられなくても続行する
+    }
+  }
+}
 
 /**
  * Audio Session API が使える環境（iOS 17+ の Safari）では、音声セッションを 'playback' にする。
@@ -101,7 +128,15 @@ export async function resumeAudio(): Promise<void> {
   const ac = audioContext();
   applyAudioSession();
   try {
-    await ac.resume();
+    // 壊れた context では resume() の Promise が二度と解決しないことがある。
+    // 呼び出し側（曲の読み込みや開始処理）が止まってしまわないよう、短い
+    // タイムアウトで見切って続行する（2026-11-20 の再現テストで発覚）
+    await Promise.race([
+      ac.resume(),
+      new Promise<void>((resolve) => {
+        setTimeout(resolve, 600);
+      }),
+    ]);
   } catch {
     // 戻せなくても続行する
   }
@@ -144,13 +179,13 @@ export async function loadBuffer(url: string): Promise<AudioBuffer> {
   return buf;
 }
 
-/** バッファを指定時刻に再生開始する。 */
-export function playBuffer(buf: AudioBuffer, when: number): AudioBufferSourceNode {
+/** バッファを指定時刻に再生開始する。offsetSec はバッファ内の開始位置（途中からの再開用）。 */
+export function playBuffer(buf: AudioBuffer, when: number, offsetSec = 0): AudioBufferSourceNode {
   stopCurrent();
   const src = audioContext().createBufferSource();
   src.buffer = buf;
   src.connect(audioOutput());
-  src.start(when);
+  src.start(when, Math.max(0, offsetSec));
   current = src;
   return src;
 }

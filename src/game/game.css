@@ -619,7 +619,7 @@
 
 #view-game .lyric-line {
   margin: 0;
-  line-height: 1.45;
+  line-height: 1.4;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -627,9 +627,17 @@
   transition: opacity 0.25s;
 }
 
-/* 文字の大きさは CD 側の通常再生の歌詞（16.5px）を起点に、演奏画面の表示物は
-   全体的にもう少し大きくする（オーナー指示 2026-11-20）。現在行は約19.5px、
-   前後の行は通常再生の本文相当（16.5px）に */
+/* 歌詞は5行表示（オーナー指示 2026-11-20）。文字の大きさは CD 側の通常再生の
+   歌詞（16.5px）を起点に、演奏画面の表示物は全体的にもう少し大きくする
+   （同日指示）。現在行は約19.5px、前後の行は通常再生の本文相当（16.5px）、
+   外側の行は一段落として約14.7px・薄く */
+#view-game .lyric-prev2,
+#view-game .lyric-next2 {
+  font-size: 0.92rem;
+  color: var(--muted);
+  opacity: 0.35;
+}
+
 #view-game .lyric-prev,
 #view-game .lyric-next {
   font-size: 1.03rem;

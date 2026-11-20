@@ -522,14 +522,16 @@ function initGameMode(): { enter: () => void } {
     }, big ? COMBO_SHOW_BIG_MS : COMBO_SHOW_MS);
   }
 
-  /** 歌詞の3行（前／今／次）を出す。今の行が変わるたびに game から呼ばれる */
+  /** 歌詞の5行（前々／前／今／次／次々）を出す。今の行が変わるたびに game から呼ばれる */
   function showLyric(index: number): void {
     const lines = lastEntry.lyrics;
     const cur = $('lyric-current');
     const text = index >= 0 ? (lines[index]?.text ?? '') : '';
+    $('lyric-prev2').textContent = index > 1 ? lines[index - 2].text : '';
     $('lyric-prev').textContent = index > 0 ? lines[index - 1].text : '';
     cur.textContent = text;
     $('lyric-next').textContent = index >= 0 && index + 1 < lines.length ? lines[index + 1].text : '';
+    $('lyric-next2').textContent = index >= 0 && index + 2 < lines.length ? lines[index + 2].text : '';
     if (text) {
       cur.classList.remove('pop');
       void cur.offsetWidth;
@@ -661,6 +663,12 @@ function initGameMode(): { enter: () => void } {
       // E2E 用: 音声時計の凍結（iOS の interrupted 再現）と復帰
       if (patch.audio === 'suspend') void audioContext().suspend();
       if (patch.audio === 'resume') void audioContext().resume();
+      // E2E 用: resume しても二度と戻らない壊れた context の再現（実機の再現手順用）
+      if (patch.audio === 'poison') {
+        const ac = audioContext() as AudioContext & { resume: () => Promise<void> };
+        ac.resume = () => new Promise<void>(() => undefined);
+        void ac.suspend();
+      }
       renderMenu();
     },
     startGame: () => startGame(),

@@ -21,7 +21,7 @@
 // 拍 tick の音は鳴らさない（tick スコアの計算は logic.ts）。
 // 完走音（3音ブリップ）・失敗音・空タップ音は、ヒット音とは役割の違う
 // 小さな合成音として据え置く（ヒット音と聞き分けられるようにするため）。
-import { audioContext, audioOutput, loadBuffer } from './audio';
+import { audioContext, audioGeneration, audioOutput, loadBuffer } from './audio';
 import { load, save } from './storage';
 import { hitPitchMultiplier, type Judge } from './logic';
 import hitSampleUrl from './assets/hit-sample.wav';
@@ -245,11 +245,14 @@ export function setSound(on: boolean): void {
 
 // ヒット音専用の出口（ゲイン → コンプレッサー → マスター）。
 // 密集したノーツで音が重なってもクリップしにくくする。曲の経路には影響しない。
+// AudioContext が作り直されたら（世代が変わったら）バスも作り直す
 let bus: AudioNode | undefined;
+let busGeneration = -1;
 
 function hitBus(): AudioNode {
   const ac = audioContext();
-  if (!bus) {
+  if (!bus || busGeneration !== audioGeneration()) {
+    busGeneration = audioGeneration();
     const comp = ac.createDynamicsCompressor();
     comp.threshold.value = -18;
     comp.knee.value = 18;
