@@ -183,20 +183,10 @@
         <p class="note">拍の音と光に合わせてタップすると、タイミングのずれを測ってオフセットに反映できます。</p>
 
         <div class="toggle-row">
-          <span>効果音</span>
-          <button id="sound-button" type="button" class="toggle" aria-label="効果音" aria-pressed="true"><span class="toggle-state">オン</span></button>
-        </div>
-        <div class="toggle-row">
           <span>振動</span>
           <button id="vibrate-button" type="button" class="toggle" aria-label="振動" aria-pressed="true"><span class="toggle-state">オン</span></button>
         </div>
         <p class="note">振動は、対応している端末（Android など）だけで働きます。</p>
-
-        <div class="toggle-row">
-          <span>歌詞表示</span>
-          <button id="lyrics-button" type="button" class="toggle" aria-label="歌詞表示" aria-pressed="true"><span class="toggle-state">オン</span></button>
-        </div>
-        <p class="note">演奏中、ジャケットの下に歌詞を3行出します。</p>
 
         <!-- 確認用の自動演奏は、バージョン表示の5回タップで出るパネル側に移した（オーナー指示 2026-11-20） -->
 
@@ -209,7 +199,7 @@
           <h2 id="latency-title">遅延チェック</h2>
           <button id="latency-close" type="button" class="dialog-close" aria-label="遅延チェックを閉じる">✕</button>
         </div>
-        <p class="note">拍の音が鳴る瞬間（丸が光る瞬間）に合わせて、「タップ」を押してください。10回タップすると、最初の2回を練習として除いた平均のずれを測ります。効果音の設定にかかわらず、計測中は拍の音が鳴ります。</p>
+        <p class="note">拍の音が鳴る瞬間（丸が光る瞬間）に合わせて、「タップ」を押してください。10回タップすると、最初の2回を練習として除いた平均のずれを測ります。計測中は拍の音が鳴ります。</p>
         <div id="latency-flash" class="latency-flash" aria-hidden="true"></div>
         <p id="latency-status" class="latency-status" aria-live="polite">「スタート」を押すと拍が流れます</p>
         <button id="latency-tap" type="button" class="latency-tap" disabled>タップ</button>
