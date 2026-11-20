@@ -142,13 +142,37 @@ function initGameMode(): { enter: () => void } {
 
   const slideIndex = (id: SongId): number => SONGS.findIndex((s) => s.id === id);
 
+  let carouselAnim = 0;
+
   /** スライドをビューポートの中央へスクロールする */
   function scrollToSong(id: SongId, smooth: boolean): void {
     const slide = slides.get(id);
     if (!slide) return;
     const left = slide.offsetLeft - (carouselViewport.clientWidth - slide.clientWidth) / 2;
-    carouselViewport.scrollTo({ left, behavior: smooth && !reduceMotion.matches ? 'smooth' : 'auto' });
+    cancelAnimationFrame(carouselAnim);
+    if (!smooth || reduceMotion.matches) {
+      carouselViewport.scrollLeft = left;
+      return;
+    }
+    // ブラウザ標準の smooth は間延びするので、自前で短くアニメーションする
+    // （速く出てきびきび収まる easeOutQuart、260ms。オーナー指摘 2026-11-20「もっとこぎみよく」）
+    const from = carouselViewport.scrollLeft;
+    const delta = left - from;
+    if (delta === 0) return;
+    const start = performance.now();
+    const DURATION_MS = 260;
+    const step = (now: number): void => {
+      const t = Math.min(1, (now - start) / DURATION_MS);
+      const eased = 1 - Math.pow(1 - t, 4);
+      carouselViewport.scrollLeft = from + delta * eased;
+      if (t < 1) carouselAnim = requestAnimationFrame(step);
+    };
+    carouselAnim = requestAnimationFrame(step);
   }
+
+  // アニメーション中に触ったら、利用者の操作を優先して止める
+  carouselViewport.addEventListener('pointerdown', () => cancelAnimationFrame(carouselAnim));
+  carouselViewport.addEventListener('wheel', () => cancelAnimationFrame(carouselAnim), { passive: true });
 
   /** 曲を選ぶ。選択の保存と表示の更新をして、必要なら中央へスクロールする */
   function selectSong(id: SongId, scroll: boolean): void {

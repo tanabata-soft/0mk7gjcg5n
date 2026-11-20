@@ -627,15 +627,17 @@
   transition: opacity 0.25s;
 }
 
+/* 文字の大きさは CD 側の通常再生の歌詞（16.5px）に揃える（オーナー指示 2026-11-20）。
+   前後の行は通常再生の間奏行（14px）相当に落とす */
 #view-game .lyric-prev,
 #view-game .lyric-next {
-  font-size: 0.75rem;
+  font-size: 0.88rem;
   color: var(--muted);
   opacity: 0.55;
 }
 
 #view-game .lyric-current {
-  font-size: 0.92rem;
+  font-size: 1.03rem;
   font-weight: 700;
   color: var(--text);
 }
