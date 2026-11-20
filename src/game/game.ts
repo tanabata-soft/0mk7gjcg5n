@@ -223,9 +223,6 @@ export class Game {
   private clockSeenAt = 0;
   private clockAdvanceWall = 0;
   private audioFrozen = false;
-  /** 凍結からの復帰（AudioContext の作り直し）の実行中フラグと、この凍結での実施済みフラグ */
-  private audioRecovering = false;
-  private freezeRecovered = false;
   private durationSec = 0;
   private bg: HTMLImageElement | null = null;
   private flash = [0, 0, 0, 0];
@@ -501,7 +498,6 @@ export class Game {
     this.clockSeenAt = nowSeconds();
     this.clockAdvanceWall = performance.now();
     this.audioFrozen = false;
-    this.freezeRecovered = false;
     setData('audioFrozen', 'off');
     playBuffer(buf, this.startAt);
     this.playing = true;
@@ -509,43 +505,6 @@ export class Game {
     setData('score', 0);
     cancelAnimationFrame(this.raf);
     this.raf = requestAnimationFrame(this.loop);
-  }
-
-  /**
-   * 音声時計の凍結からの復帰。壊れた AudioContext を作り直し、凍結した時点の
-   * 演奏位置のまま、新しい context の時計で曲を再開できるようにつなぎ直す。
-   * 新しい context がまだ suspended でも、時計と曲は新しい context 基準で
-   * そろっているため、次のタップの unlock で両方が一緒に動き出す。
-   */
-  private async recoverAudioClock(): Promise<void> {
-    if (this.audioRecovering || !this.playing || !this.entry) return;
-    this.audioRecovering = true;
-    this.freezeRecovered = true;
-    const session = this.startSession;
-    try {
-      // 凍結した時計での演奏位置（READY 中は負の値）
-      const posSec = nowSeconds() - this.startAt;
-      recreateAudioContext();
-      unlockAudio();
-      stopAllHoldSounds();
-      const buf = await loadBuffer(this.entry.audioUrl);
-      if (this.destroyed || !this.playing || session !== this.startSession) return;
-      const now = nowSeconds();
-      if (posSec >= 0) {
-        this.startAt = now - posSec;
-        playBuffer(buf, now, posSec);
-      } else {
-        this.startAt = now + -posSec;
-        playBuffer(buf, this.startAt, 0);
-      }
-      this.lastFrameAt = nowSeconds();
-      this.clockSeenAt = nowSeconds();
-      this.clockAdvanceWall = performance.now();
-    } catch {
-      // 復帰できなければ、従来どおりタップでの復帰に委ねる
-    } finally {
-      this.audioRecovering = false;
-    }
   }
 
   /** 演奏を止めてメニューに戻る（結果は残さない） */
@@ -558,6 +517,8 @@ export class Game {
     cancelAnimationFrame(this.raf);
     stopCurrent();
     stopAllHoldSounds();
+    this.audioFrozen = false;
+    setData('audioFrozen', 'off');
     setData('game', 'menu');
     this.cb.onAbort();
   }
@@ -858,8 +819,9 @@ export class Game {
         void resumeAudio();
       }
     }
-    // 時計の凍結検知: 音声時計が壁時計で 1.5 秒以上進んでいなければ「止まっている」とみなし、
-    // 画面にタップでの復帰を促す（タップ側は pressLane の強い unlock で戻す）。
+    // 時計の凍結検知: 音声時計が壁時計で 1.5 秒以上進んでいなければ「止まっている」と
+    // みなす。READY 中なら画面にタップでの復帰を促し（タップ側は pressLane の強い
+    // unlock で戻す）、演奏開始後なら下の分岐で初期化してメニューへ戻す。
     // 凍ったまま無言だと「タッチできない」ように見える（2026-11-20 実機報告）
     if (frameAt > this.clockSeenAt + 0.001) {
       this.clockSeenAt = frameAt;
@@ -870,12 +832,16 @@ export class Game {
       this.audioFrozen = frozen;
       setData('audioFrozen', frozen ? 'on' : 'off');
     }
-    if (!frozen) this.freezeRecovered = false;
-    // 凍結が続くなら、AudioContext を作り直して時計と曲を新しい context に
-    // つなぎ直す（1回の凍結につき1回だけ試す）。作り直した context は次の
-    // タップ（pressLane の unlock）で起こせるようになる
-    if (frozen && !this.freezeRecovered && !this.audioRecovering) {
-      void this.recoverAudioClock();
+    // 演奏が始まった後の凍結は、無理に再開せず初期化してメニューへ戻す
+    // （オーナー指示 2026-11-20: 曲の途中でアプリを切り替えて戻ると叩けなく
+    // なるため、続きからの再開ではなく初期化再スタートでよい）。音声の
+    // 仕組みも作り直して、次のスタートがまっさらな状態から始まるようにする。
+    // READY 中（位置が負）の凍結は対象外で、従来どおりタップでの復帰を案内する
+    if (frozen && frameAt - this.startAt > 0.1) {
+      this.resetInput();
+      recreateAudioContext();
+      this.abort();
+      return;
     }
     // 経過時間（秒）。タブ復帰などで大きく飛んだときは 50ms に丸める
     const dt = Math.min(0.05, Math.max(0, frameAt - this.lastFrameAt));

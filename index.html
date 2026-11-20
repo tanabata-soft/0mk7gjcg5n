@@ -128,13 +128,11 @@
         <!-- ゲーム画面 -->
         <div id="game-screen" hidden>
           <canvas id="game-canvas"></canvas>
-          <!-- 歌詞（5行: 前々／前／今／次／次々）。タップは透過させる -->
+          <!-- 歌詞（3行: 前／今／次）。タップは透過させる -->
           <div id="lyrics" class="lyrics" aria-hidden="true">
-            <p class="lyric-line lyric-prev2" id="lyric-prev2"></p>
             <p class="lyric-line lyric-prev" id="lyric-prev"></p>
             <p class="lyric-line lyric-current" id="lyric-current"></p>
             <p class="lyric-line lyric-next" id="lyric-next"></p>
-            <p class="lyric-line lyric-next2" id="lyric-next2"></p>
           </div>
           <!-- ノーツ専用キャンバス: 歌詞より手前に音符を出すため、本体キャンバスから
                ノーツとヒット演出だけを分離して歌詞の上に重ねる（オーナー指示 2026-11-20）。
