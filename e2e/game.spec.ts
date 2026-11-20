@@ -72,9 +72,9 @@ test('設定ダイアログが開閉できる', async ({ page }) => {
   await page.locator('#offset-plus').click();
   await expect(page.locator('#offset-value')).toHaveText('+10ms');
   await expect(page.locator('body')).toHaveAttribute('data-offset', '10');
-  // 下部の「閉じる」は廃止した（右上の × で閉じる）。代わりに版数が出る
+  // 下部の「閉じる」と版数表示は廃止した（右上の × で閉じる）
   await expect(page.locator('#settings-dialog #settings-close-bottom')).toHaveCount(0);
-  await expect(page.locator('#settings-dialog .dialog-version')).toContainText('チーマイモード v');
+  await expect(page.locator('#settings-dialog .dialog-version')).toHaveCount(0);
   await page.locator('#settings-close').click();
   await expect(page.locator('#settings-dialog')).toBeHidden();
 });
