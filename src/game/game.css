@@ -523,18 +523,18 @@
   margin: 12px 0 10px;
 }
 
+/* ランクは金の塗りつぶし（オーナー指示 2026-11-20。当初は輪郭だけだった） */
 #view-game .best-rank {
   font-size: 2.1rem;
   font-weight: 800;
   line-height: 1;
-  color: transparent;
-  -webkit-text-stroke: 1.2px var(--gold);
+  color: var(--gold);
   min-width: 2.7rem;
   text-align: center;
 }
 
 #view-game .best-rank.none {
-  -webkit-text-stroke-color: rgb(255 255 255 / 0.35);
+  color: rgb(255 255 255 / 0.35);
 }
 
 #view-game .best-meta {
@@ -627,17 +627,18 @@
   transition: opacity 0.25s;
 }
 
-/* 文字の大きさは CD 側の通常再生の歌詞（16.5px）に揃える（オーナー指示 2026-11-20）。
-   前後の行は通常再生の間奏行（14px）相当に落とす */
+/* 文字の大きさは CD 側の通常再生の歌詞（16.5px）を起点に、演奏画面の表示物は
+   全体的にもう少し大きくする（オーナー指示 2026-11-20）。現在行は約19.5px、
+   前後の行は通常再生の本文相当（16.5px）に */
 #view-game .lyric-prev,
 #view-game .lyric-next {
-  font-size: 0.88rem;
+  font-size: 1.03rem;
   color: var(--muted);
   opacity: 0.55;
 }
 
 #view-game .lyric-current {
-  font-size: 1.03rem;
+  font-size: 1.22rem;
   font-weight: 700;
   color: var(--text);
 }

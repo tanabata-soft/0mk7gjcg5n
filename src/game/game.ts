@@ -219,6 +219,10 @@ export class Game {
   /** 端末の「視差効果を減らす」設定（背景のズームを止めるかの判定に使う） */
   private reducedMotion = false;
   private startAt = 0; // AudioContext 時刻（秒）
+  /** 音声時計の凍結検知用: 最後に時計が進んだときの値と、その壁時計時刻 */
+  private clockSeenAt = 0;
+  private clockAdvanceWall = 0;
+  private audioFrozen = false;
   private durationSec = 0;
   private bg: HTMLImageElement | null = null;
   private flash = [0, 0, 0, 0];
@@ -483,6 +487,10 @@ export class Game {
     }
     this.startAt = nowSeconds() + READY_SECONDS;
     this.lastFrameAt = nowSeconds();
+    this.clockSeenAt = nowSeconds();
+    this.clockAdvanceWall = performance.now();
+    this.audioFrozen = false;
+    setData('audioFrozen', 'off');
     playBuffer(buf, this.startAt);
     this.playing = true;
     setData('game', 'playing');
@@ -518,8 +526,11 @@ export class Game {
   }
 
   private pressLane(lane: number, rippleX?: number, rippleY?: number): void {
-    // 保険: 再生中に AudioContext が止まっていたら（iOS の interrupted など）、タップのついでに戻す
-    if (audioContext().state !== 'running') void resumeAudio();
+    // 保険: 再生中に AudioContext が止まっていたら（iOS の interrupted など）、タップのついでに戻す。
+    // resume だけでは戻らないことがあるため、ジェスチャの中で効く強い unlock（resume＋
+    // 音声セッション再設定＋無音バッファ）を使う（2026-11-20 実機で「READY のまま
+    // タッチできない」症状が出たための強化）
+    if (audioContext().state !== 'running') unlockAudio();
     this.flash[lane] = 1;
     // 押した場所に波紋を出す（キーボードのときはレーンの判定ライン中央）
     const lw = this.width / 4;
@@ -797,6 +808,18 @@ export class Game {
         this.lastResumeTryWall = wall;
         void resumeAudio();
       }
+    }
+    // 時計の凍結検知: 音声時計が壁時計で 1.5 秒以上進んでいなければ「止まっている」とみなし、
+    // 画面にタップでの復帰を促す（タップ側は pressLane の強い unlock で戻す）。
+    // 凍ったまま無言だと「タッチできない」ように見える（2026-11-20 実機報告）
+    if (frameAt > this.clockSeenAt + 0.001) {
+      this.clockSeenAt = frameAt;
+      this.clockAdvanceWall = performance.now();
+    }
+    const frozen = audioContext().state !== 'running' && performance.now() - this.clockAdvanceWall > 1500;
+    if (frozen !== this.audioFrozen) {
+      this.audioFrozen = frozen;
+      setData('audioFrozen', frozen ? 'on' : 'off');
     }
     // 経過時間（秒）。タブ復帰などで大きく飛んだときは 50ms に丸める
     const dt = Math.min(0.05, Math.max(0, frameAt - this.lastFrameAt));
@@ -1087,12 +1110,24 @@ export class Game {
     g.textAlign = 'center';
     if (nowSec < 0) {
       g.fillStyle = '#fff';
-      g.font = 'bold 40px sans-serif';
+      g.font = 'bold 48px sans-serif';
       g.fillText('READY', W / 2, H * 0.4);
     }
+    if (this.audioFrozen) {
+      // 音声が止まって時計が凍っている間の案内。タップで復帰できることを伝える
+      g.fillStyle = '#fff';
+      g.font = 'bold 19px sans-serif';
+      g.shadowColor = 'rgb(0 0 0 / 0.9)';
+      g.shadowBlur = 6;
+      g.fillText('音声が止まっています', W / 2, H * 0.52);
+      g.font = '16px sans-serif';
+      g.fillText('画面をタップすると再開します', W / 2, H * 0.52 + 26);
+      g.shadowBlur = 0;
+    }
     if (this.combo > 1) {
-      // コンボ表示も tier で色・大きさが変わる（高 tier では光る）
-      const comboPx = Math.round(44 * frameFx.comboScale);
+      // コンボ表示も tier で色・大きさが変わる（高 tier では光る）。
+      // 数字の基準サイズは 54px（オーナー指示 2026-11-20「表示物は全体的にもう少し大きく」）
+      const comboPx = Math.round(54 * frameFx.comboScale);
       if (tier >= 3) {
         g.shadowColor = frameFx.comboColor;
         g.shadowBlur = 16;
@@ -1101,8 +1136,8 @@ export class Game {
       g.font = `bold ${comboPx}px sans-serif`;
       g.fillText(String(this.combo), W / 2, H * 0.3);
       g.shadowBlur = 0;
-      g.font = '14px sans-serif';
-      g.fillText('COMBO', W / 2, H * 0.3 + 22 + (comboPx - 44));
+      g.font = '17px sans-serif';
+      g.fillText('COMBO', W / 2, H * 0.3 + 26 + (comboPx - 54));
     }
     // 判定文字: 出た瞬間に大きく、縮みながらフェードする（経過時間ベース）。
     // 出た時点の tier で拡大し、高 tier では光る
@@ -1117,17 +1152,17 @@ export class Game {
         g.shadowBlur = 18;
       }
       g.fillStyle = this.judgeColor;
-      g.font = `bold ${Math.round(28 * scale)}px sans-serif`;
+      g.font = `bold ${Math.round(34 * scale)}px sans-serif`;
       g.fillText(this.judgeText, W / 2, H * 0.5);
       g.shadowBlur = 0;
       g.globalAlpha = 1;
     }
     g.textAlign = 'left';
     g.fillStyle = '#fff';
-    g.font = 'bold 18px sans-serif';
-    g.fillText('✕', 20, 34);
+    g.font = 'bold 21px sans-serif';
+    g.fillText('✕', 20, 36);
     g.textAlign = 'right';
-    g.fillText(String(this.score).padStart(7, '0'), W - 14, 34);
+    g.fillText(String(this.score).padStart(7, '0'), W - 14, 36);
     g.fillStyle = 'rgba(255,255,255,.2)';
     g.fillRect(0, 0, W, 3);
     g.fillStyle = GOLD;
