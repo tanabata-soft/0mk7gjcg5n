@@ -30,7 +30,7 @@ import {
 } from '../debug';
 import { isSoundOn, playSwipeSound, playUiClick, preloadHitSample, setSound } from './sound';
 import { isVibrateOn, setVibrate } from './haptics';
-import { audioState, isUnlocked, unlockAudio } from './audio';
+import { audioContext, audioState, isUnlocked, unlockAudio } from './audio';
 import { load, migrateStorage, requestPersist, save } from './storage';
 
 function initGameMode(): { enter: () => void } {
@@ -143,6 +143,8 @@ function initGameMode(): { enter: () => void } {
   const slideIndex = (id: SongId): number => SONGS.findIndex((s) => s.id === id);
 
   let carouselAnim = 0;
+  /** プログラム側のアニメーション中は true（スワイプによる確定判定を止める） */
+  let carouselAnimating = false;
 
   /** スライドをビューポートの中央へスクロールする */
   function scrollToSong(id: SongId, smooth: boolean): void {
@@ -150,6 +152,7 @@ function initGameMode(): { enter: () => void } {
     if (!slide) return;
     const left = slide.offsetLeft - (carouselViewport.clientWidth - slide.clientWidth) / 2;
     cancelAnimationFrame(carouselAnim);
+    carouselAnimating = false;
     if (!smooth || reduceMotion.matches) {
       carouselViewport.scrollLeft = left;
       return;
@@ -159,20 +162,29 @@ function initGameMode(): { enter: () => void } {
     const from = carouselViewport.scrollLeft;
     const delta = left - from;
     if (delta === 0) return;
+    carouselAnimating = true;
     const start = performance.now();
     const DURATION_MS = 260;
     const step = (now: number): void => {
       const t = Math.min(1, (now - start) / DURATION_MS);
       const eased = 1 - Math.pow(1 - t, 4);
       carouselViewport.scrollLeft = from + delta * eased;
-      if (t < 1) carouselAnim = requestAnimationFrame(step);
+      if (t < 1) {
+        carouselAnim = requestAnimationFrame(step);
+      } else {
+        carouselAnimating = false;
+      }
     };
     carouselAnim = requestAnimationFrame(step);
   }
 
   // アニメーション中に触ったら、利用者の操作を優先して止める
-  carouselViewport.addEventListener('pointerdown', () => cancelAnimationFrame(carouselAnim));
-  carouselViewport.addEventListener('wheel', () => cancelAnimationFrame(carouselAnim), { passive: true });
+  const cancelCarouselAnim = (): void => {
+    cancelAnimationFrame(carouselAnim);
+    carouselAnimating = false;
+  };
+  carouselViewport.addEventListener('pointerdown', cancelCarouselAnim);
+  carouselViewport.addEventListener('wheel', cancelCarouselAnim, { passive: true });
 
   /** 曲を選ぶ。選択の保存と表示の更新をして、必要なら中央へスクロールする */
   function selectSong(id: SongId, scroll: boolean): void {
@@ -192,32 +204,56 @@ function initGameMode(): { enter: () => void } {
   $('carousel-prev').addEventListener('click', () => stepSong(-1));
   $('carousel-next').addEventListener('click', () => stepSong(1));
 
-  // スワイプ（スクロール）が落ち着いたら、中央のスライドを選択中の曲に合わせる
+  /** いま中央に一番近いスライドの曲 */
+  function nearestSongId(): SongId {
+    const center = carouselViewport.scrollLeft + carouselViewport.clientWidth / 2;
+    let best = selectedSong;
+    let bestDist = Infinity;
+    for (const entry of SONGS) {
+      const slide = slides.get(entry.id);
+      if (!slide) continue;
+      const d = Math.abs(slide.offsetLeft + slide.clientWidth / 2 - center);
+      if (d < bestDist) {
+        bestDist = d;
+        best = entry.id;
+      }
+    }
+    return best;
+  }
+
+  /** 選択中の曲を id に合わせる（スワイプ確定用。スクロール自体は利用者の操作に任せる） */
+  function confirmSong(id: SongId): void {
+    if (id === selectedSong) return;
+    selectedSong = id;
+    save('song', selectedSong);
+    renderMenu();
+    playSwipeSound();
+  }
+
+  // スワイプ中も、中央に一番近い曲が変わった時点で選択を確定する。
+  // 静止を待ってから確定すると間延びする（オーナー指摘 2026-11-20「確定までが長い」）。
+  // 中間点を過ぎればスナップの着地先は決まるので、その時点で確定してよい
+  let confirmRaf = 0;
+  carouselViewport.addEventListener(
+    'scroll',
+    () => {
+      if (carouselAnimating || confirmRaf) return;
+      confirmRaf = requestAnimationFrame(() => {
+        confirmRaf = 0;
+        if (carouselAnimating) return;
+        confirmSong(nearestSongId());
+      });
+    },
+    { passive: true },
+  );
+
+  // 落ち着いた時点でもう一度合わせる（上の即時確定を取りこぼした場合の保険）
   let scrollSettleTimer = 0;
   carouselViewport.addEventListener(
     'scroll',
     () => {
       window.clearTimeout(scrollSettleTimer);
-      scrollSettleTimer = window.setTimeout(() => {
-        const center = carouselViewport.scrollLeft + carouselViewport.clientWidth / 2;
-        let best = selectedSong;
-        let bestDist = Infinity;
-        for (const entry of SONGS) {
-          const slide = slides.get(entry.id);
-          if (!slide) continue;
-          const d = Math.abs(slide.offsetLeft + slide.clientWidth / 2 - center);
-          if (d < bestDist) {
-            bestDist = d;
-            best = entry.id;
-          }
-        }
-        if (best !== selectedSong) {
-          selectedSong = best;
-          save('song', selectedSong);
-          renderMenu();
-          playSwipeSound();
-        }
-      }, 120);
+      scrollSettleTimer = window.setTimeout(() => confirmSong(nearestSongId()), 120);
     },
     { passive: true },
   );
@@ -622,6 +658,9 @@ function initGameMode(): { enter: () => void } {
         syncAutoplayAction();
         refreshDebugPanel();
       }
+      // E2E 用: 音声時計の凍結（iOS の interrupted 再現）と復帰
+      if (patch.audio === 'suspend') void audioContext().suspend();
+      if (patch.audio === 'resume') void audioContext().resume();
       renderMenu();
     },
     startGame: () => startGame(),
