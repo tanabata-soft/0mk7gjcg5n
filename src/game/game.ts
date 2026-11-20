@@ -186,6 +186,10 @@ const MAX_PARTICLES = 300;
 export class Game {
   private canvas: HTMLCanvasElement;
   private g: CanvasRenderingContext2D;
+  /** ノーツ専用キャンバス（歌詞 DOM より手前に重ねるため分離。オーナー指示 2026-11-20:
+   *  音符は歌詞より上に表示する。背景・ジャケット・レーン・判定枠は本体キャンバス側） */
+  private notesCanvas: HTMLCanvasElement;
+  private gn: CanvasRenderingContext2D;
   private cb: GameCallbacks;
   private raf = 0;
   private playing = false;
@@ -363,11 +367,15 @@ export class Game {
     }
   }
 
-  constructor(canvas: HTMLCanvasElement, cb: GameCallbacks) {
+  constructor(canvas: HTMLCanvasElement, notesCanvas: HTMLCanvasElement, cb: GameCallbacks) {
     this.canvas = canvas;
     const g = canvas.getContext('2d');
     if (!g) throw new Error('Canvas が使えません');
     this.g = g;
+    this.notesCanvas = notesCanvas;
+    const gn = notesCanvas.getContext('2d');
+    if (!gn) throw new Error('Canvas が使えません');
+    this.gn = gn;
     this.cb = cb;
     canvas.addEventListener('pointerdown', this.onPointerDown);
     canvas.addEventListener('pointermove', this.onPointerMove);
@@ -767,13 +775,16 @@ export class Game {
       this.canvas.width = Math.round(w * d);
       this.canvas.height = Math.round(h * d);
       this.g.setTransform(d, 0, 0, d, 0, 0);
+      this.notesCanvas.width = Math.round(w * d);
+      this.notesCanvas.height = Math.round(h * d);
+      this.gn.setTransform(d, 0, 0, d, 0, 0);
     }
   }
 
   private loop = (): void => {
     if (!this.playing) return;
     this.fit();
-    const { g } = this;
+    const { g, gn } = this;
     const W = this.width;
     const H = this.height;
     const frameAt = nowSeconds();
@@ -943,6 +954,9 @@ export class Game {
         g.globalAlpha = 1;
       }
     }
+    // ノーツ専用キャンバスは透明なので、毎フレーム消してから描く（ここから先の
+    // ノーツ・長押し・ヒット演出は gn 側。歌詞 DOM より手前に重なる）
+    gn.clearRect(0, 0, W, H);
     // 長押しの帯（タップノーツより先に描く）。頭がラインに届いたら帯の下端はラインに吸着する
     for (const n of this.notes) {
       if (n.holdMs <= 0 || n.state === 2) continue;
@@ -962,47 +976,47 @@ export class Game {
       const bodyTop = tailY + 7;
       if (bottom > bodyTop) {
         if (n.holdPhase === 'holding') {
-          g.globalAlpha = 0.3;
-          g.fillStyle = c;
-          g.beginPath();
-          g.roundRect(cx - bw / 2 - 6, bodyTop, bw + 12, bottom - bodyTop, 12);
-          g.fill();
+          gn.globalAlpha = 0.3;
+          gn.fillStyle = c;
+          gn.beginPath();
+          gn.roundRect(cx - bw / 2 - 6, bodyTop, bw + 12, bottom - bodyTop, 12);
+          gn.fill();
         }
-        g.globalAlpha =
+        gn.globalAlpha =
           n.holdPhase === 'holding' ? 0.95 : n.holdPhase === 'grace' ? 0.5 + 0.25 * Math.sin(frameAt * 28) : 0.55;
-        g.fillStyle = c;
-        g.beginPath();
-        g.roundRect(cx - bw / 2, bodyTop, bw, bottom - bodyTop, 9);
-        g.fill();
+        gn.fillStyle = c;
+        gn.beginPath();
+        gn.roundRect(cx - bw / 2, bodyTop, bw, bottom - bodyTop, 9);
+        gn.fill();
         if (n.holdPhase === 'holding') {
-          g.globalAlpha = 0.55;
-          g.fillStyle = '#fff';
-          g.fillRect(cx - 2, bodyTop + 4, 4, Math.max(0, bottom - bodyTop - 8));
-          g.globalAlpha = 1;
+          gn.globalAlpha = 0.55;
+          gn.fillStyle = '#fff';
+          gn.fillRect(cx - 2, bodyTop + 4, 4, Math.max(0, bottom - bodyTop - 8));
+          gn.globalAlpha = 1;
         } else {
-          g.globalAlpha = 1;
+          gn.globalAlpha = 1;
         }
       }
       // 尾のキャップ
-      g.fillStyle = c;
-      g.beginPath();
-      g.roundRect(n.lane * lw + 10, tailY - 7, lw - 20, 14, 7);
-      g.fill();
+      gn.fillStyle = c;
+      gn.beginPath();
+      gn.roundRect(n.lane * lw + 10, tailY - 7, lw - 20, 14, 7);
+      gn.fill();
       // 頭のキャップ（未ヒットのときだけ。ヒット後はライン側に吸着する）
       if (n.state === 0) {
-        g.beginPath();
-        g.roundRect(n.lane * lw + 8, headY - 14, lw - 16, 28, 8);
-        g.fill();
+        gn.beginPath();
+        gn.roundRect(n.lane * lw + 8, headY - 14, lw - 16, 28, 8);
+        gn.fill();
       }
     }
     for (const n of this.notes) {
       if (n.state !== 0 || n.holdMs > 0) continue;
       const y = hy - ((n.timeMs - nowMs) / 1000 / fall) * hy;
       if (y < -30 || y > H + 30) continue;
-      g.fillStyle = LANE_COLORS[n.lane];
-      g.beginPath();
-      g.roundRect(n.lane * lw + 8, y - 14, lw - 16, 28, 8);
-      g.fill();
+      gn.fillStyle = LANE_COLORS[n.lane];
+      gn.beginPath();
+      gn.roundRect(n.lane * lw + 8, y - 14, lw - 16, 28, 8);
+      gn.fill();
     }
 
     // ---- ヒット演出（時間ベースで更新） ----
@@ -1013,29 +1027,29 @@ export class Game {
       const scale = 1 + (p.maxScale - 1) * k;
       const w = (lw - 16) * scale;
       const h = 28 * scale;
-      g.globalAlpha = 0.75 * (1 - k);
-      g.fillStyle = p.c;
-      g.beginPath();
-      g.roundRect(p.lane * lw + lw / 2 - w / 2, hy - h / 2, w, h, 8);
-      g.fill();
+      gn.globalAlpha = 0.75 * (1 - k);
+      gn.fillStyle = p.c;
+      gn.beginPath();
+      gn.roundRect(p.lane * lw + lw / 2 - w / 2, hy - h / 2, w, h, 8);
+      gn.fill();
     }
     this.pops = this.pops.filter((p) => p.age < p.life);
-    g.globalAlpha = 1;
+    gn.globalAlpha = 1;
 
     for (const r of this.rings) {
       r.age += dt;
       const k = r.age / r.life;
       if (k >= 1) continue;
       const ease = 1 - (1 - k) * (1 - k);
-      g.globalAlpha = 0.9 * (1 - k);
-      g.strokeStyle = r.c;
-      g.lineWidth = (1 + 3.5 * (1 - k)) * r.widthMul;
-      g.beginPath();
-      g.arc(r.x, r.y, 10 + (r.maxR - 10) * ease, 0, 7);
-      g.stroke();
+      gn.globalAlpha = 0.9 * (1 - k);
+      gn.strokeStyle = r.c;
+      gn.lineWidth = (1 + 3.5 * (1 - k)) * r.widthMul;
+      gn.beginPath();
+      gn.arc(r.x, r.y, 10 + (r.maxR - 10) * ease, 0, 7);
+      gn.stroke();
     }
     this.rings = this.rings.filter((r) => r.age < r.life);
-    g.globalAlpha = 1;
+    gn.globalAlpha = 1;
 
     // 粒子は上限つき。死んだものはプールへ戻して再利用する（毎フレームの確保を避ける）
     for (let i = this.particles.length - 1; i >= 0; i--) {
@@ -1050,25 +1064,25 @@ export class Game {
       p.vy += 900 * dt;
       p.x += p.vx * dt;
       p.y += p.vy * dt;
-      g.globalAlpha = 1 - p.age / p.life;
-      g.fillStyle = p.c;
-      g.fillRect(p.x - p.size / 2, p.y - p.size / 2, p.size, p.size);
+      gn.globalAlpha = 1 - p.age / p.life;
+      gn.fillStyle = p.c;
+      gn.fillRect(p.x - p.size / 2, p.y - p.size / 2, p.size, p.size);
     }
-    g.globalAlpha = 1;
+    gn.globalAlpha = 1;
 
     for (const r of this.ripples) {
       r.age += dt;
       const k = r.age / r.life;
       if (k >= 1) continue;
-      g.globalAlpha = 0.7 * (1 - k);
-      g.strokeStyle = r.c;
-      g.lineWidth = 2;
-      g.beginPath();
-      g.arc(r.x, r.y, 6 + 34 * k, 0, 7);
-      g.stroke();
+      gn.globalAlpha = 0.7 * (1 - k);
+      gn.strokeStyle = r.c;
+      gn.lineWidth = 2;
+      gn.beginPath();
+      gn.arc(r.x, r.y, 6 + 34 * k, 0, 7);
+      gn.stroke();
     }
     this.ripples = this.ripples.filter((r) => r.age < r.life);
-    g.globalAlpha = 1;
+    gn.globalAlpha = 1;
 
     g.textAlign = 'center';
     if (nowSec < 0) {
