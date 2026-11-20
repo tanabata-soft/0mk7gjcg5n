@@ -235,7 +235,6 @@ function initGameMode(): { enter: () => void } {
     const rankEl = $('menu-best-rank');
     rankEl.textContent = rank ?? '—';
     rankEl.classList.toggle('none', !rank);
-    $('best-tag').hidden = bestOf(selectedSong, selectedDiff) <= 0;
     // 背景のぼかしジャケットを選曲に追随させる（曲が変わった時だけ、薄くフェードして差し替える）
     if (menuBgSong !== selectedSong) {
       menuBgSong = selectedSong;

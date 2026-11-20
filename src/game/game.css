@@ -502,7 +502,8 @@
 }
 
 /* ベストスコアは曲選択画面の難易度の上に、専用の領域で出す。
-   罫線だけの帯＋輪郭だけの金ランク＋BEST のタグ（オーナー承認の見た目 2026-11-20。設定には置かない） */
+   罫線だけの帯＋輪郭だけの金ランク（オーナー承認の見た目 2026-11-20。設定には置かない。
+   BEST のタグは「ベストしか出ないので不要」とのオーナー指摘で付けない） */
 #view-game .best-panel {
   display: flex;
   align-items: center;
@@ -526,17 +527,6 @@
 
 #view-game .best-rank.none {
   -webkit-text-stroke-color: rgb(255 255 255 / 0.35);
-}
-
-#view-game .best-tag {
-  margin-left: auto;
-  font-size: 0.56rem;
-  letter-spacing: 0.3em;
-  text-indent: 0.3em;
-  color: var(--gold);
-  border: 1px solid rgb(255 209 102 / 0.5);
-  padding: 3px 7px;
-  border-radius: 3px;
 }
 
 #view-game .best-meta {
