@@ -1,6 +1,6 @@
 // ゲームのルール・計算は DOM に触れない純関数にして、tests/ で単体テストする。
 // 基本仕様:
-//   判定 PERFECT ±50ms / GREAT ±100ms / GOOD ±160ms、スコア 1000/700/400、FEVER中は2倍
+//   判定 PERFECT ±50ms / GREAT ±100ms / GOOD ±160ms、スコア 1000/700/400（倍率なし）
 //   精度 = (PERFECT + GREAT×0.7 + GOOD×0.4) / 全ノーツ ×100、ランク S≥95 / A≥85 / B≥70 / C
 
 /** 曲の ID（src/charts.ts の SONGS の id と対応する文字列。曲を足すときはここは変えない） */
@@ -42,7 +42,6 @@ export const LANE_COLORS = ['#ff6b6b', '#ffd166', '#4ecdc4', '#6c8cff'] as const
 /** 判定幅 (ms) */
 export const JUDGE_WINDOWS = { perfect: 50, great: 100, good: 160 } as const;
 export const JUDGE_SCORES: Record<Exclude<Judge, 'miss'>, number> = { perfect: 1000, great: 700, good: 400 };
-export const FEVER_MULTIPLIER = 2;
 
 /** オフセット調整の範囲 (ms) */
 export const OFFSET_MIN = -200;
@@ -124,12 +123,8 @@ export function judgeFor(absDeltaMs: number): Exclude<Judge, 'miss'> | null {
   return null;
 }
 
-export function isFever(fever: [number, number][], atSeconds: number): boolean {
-  return fever.some(([from, to]) => atSeconds >= from && atSeconds < to);
-}
-
-export function scoreFor(judge: Exclude<Judge, 'miss'>, fever: boolean): number {
-  return JUDGE_SCORES[judge] * (fever ? FEVER_MULTIPLIER : 1);
+export function scoreFor(judge: Exclude<Judge, 'miss'>): number {
+  return JUDGE_SCORES[judge];
 }
 
 export interface JudgementCounts {
@@ -334,10 +329,11 @@ export function comboTier(combo: number): number {
   return tier;
 }
 
-/** FEVER 中は実質 +1 tier（上限あり） */
-export function effectiveTier(combo: number, fever: boolean): number {
-  return Math.min(MAX_COMBO_TIER, comboTier(combo) + (fever ? 1 : 0));
-}
+/**
+ * 演出段階はコンボだけで決まる（FEVER は 2026-11-20 にオーナー判断で廃止。
+ * サビ区間の倍率・枠の光は実感が薄く、代わりにコンボ段階で画面演出を強める）。
+ * 譜面データの fever（サビ区間）は生成器側の記録として残るが、演奏には使わない
+ */
 
 /** コンボ演出（キャラ登場）が起きるコンボの間隔 */
 export const COMBO_SHOW_INTERVAL = 30;

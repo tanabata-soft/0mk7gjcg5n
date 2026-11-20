@@ -516,6 +516,38 @@ export function playUiClick(): void {
   }
 }
 
+/**
+ * 曲変更の音（オーナー指示 2026-11-20: 曲変更はクリックではなくスワイプ音に統一。
+ * スワイプでもタップでも同じ音。難易度・設定の変更は playUiClick のまま）。
+ * バンドパスの中心周波数を上へ掃引するノイズで「シュッ」という短い音にする
+ */
+export function playSwipeSound(): void {
+  if (!enabled) return;
+  try {
+    const ac = audioContext();
+    void ac.resume();
+    const t = ac.currentTime;
+    const dur = 0.16;
+    const noise = ac.createBufferSource();
+    noise.buffer = getNoiseBuffer(ac);
+    const band = ac.createBiquadFilter();
+    band.type = 'bandpass';
+    band.Q.value = 1.1;
+    band.frequency.setValueAtTime(700, t);
+    band.frequency.exponentialRampToValueAtTime(2600, t + dur);
+    const gain = ac.createGain();
+    gain.gain.setValueAtTime(0.0001, t);
+    gain.gain.exponentialRampToValueAtTime(0.16, t + dur * 0.35);
+    gain.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    noise.connect(band).connect(gain).connect(hitBus());
+    noise.start(t);
+    noise.stop(t + dur + 0.02);
+    document.dispatchEvent(new CustomEvent('app:sound', { detail: { kind: 'swipe' } }));
+  } catch {
+    // 音が出せなくても続行する
+  }
+}
+
 /** 空タップ音。ノーツのないレーンを押したときに鳴らす（ヒット音とは別の小さな音） */
 export function playEmptySound(): void {
   if (!enabled) return;

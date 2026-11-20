@@ -5,18 +5,16 @@
 // 演出（粒子・輪・波紋・判定文字）はすべて経過時間ベースで進める（120Hz でも 60Hz と同じ見え方にする）。
 import {
   DIFFICULTIES,
-  FEVER_MULTIPLIER,
   HOLD_COMPLETE_BONUS,
   HOLD_TICK_SCORE,
   LANE_COLORS,
   advanceHold,
   beginHold,
   comboAppearance,
-  effectiveTier,
+  comboTier,
   emptyCounts,
   findHit,
   isComboShow,
-  isFever,
   lyricIndexAt,
   makePlayNotes,
   rankFor,
@@ -69,6 +67,18 @@ const READY_SECONDS = 2;
 const JUDGE_LABEL: Record<Judge, string> = { perfect: 'PERFECT', great: 'GREAT', good: 'GOOD', miss: 'MISS' };
 const JUDGE_COLOR: Record<Judge, string> = { perfect: '#ffd166', great: '#4ecdc4', good: '#9aa8ff', miss: '#ff6b6b' };
 const GOLD = '#ffd166';
+
+/** コンボ段階ごとのベール（暗幕）の濃さ。段階が上がるほど薄くなり、ジャケットが冴える */
+const TIER_VEIL_ALPHA = [0.62, 0.57, 0.52, 0.46, 0.4] as const;
+
+/** コンボ段階ごとの画面の縁の光（tier 0 はなし）。色は TIER_FX の comboColor と揃える */
+const TIER_EDGE: ({ rgb: string; alpha: number; width: number } | null)[] = [
+  null,
+  { rgb: '165,243,252', alpha: 0.3, width: 3 },
+  { rgb: '78,205,196', alpha: 0.42, width: 4 },
+  { rgb: '255,209,102', alpha: 0.55, width: 5 },
+  { rgb: '255,138,216', alpha: 0.7, width: 6 },
+];
 
 /** 粒子（ヒットで弾ける） */
 interface Particle {
@@ -208,6 +218,9 @@ export class Game {
   private durationSec = 0;
   private bg: HTMLImageElement | null = null;
   private flash = [0, 0, 0, 0];
+  /** コンボ段階（tier）の画面演出用: 前フレームの tier と、上がった瞬間のフラッシュ量 */
+  private lastTier = 0;
+  private tierFlash = 0;
   private particles: Particle[] = [];
   private particlePool: Particle[] = [];
   private rings: Ring[] = [];
@@ -437,6 +450,8 @@ export class Game {
     setData('holdsFailed', 0);
     setData('combo', 0);
     setData('comboTier', 0);
+    this.lastTier = 0;
+    this.tierFlash = 0;
     this.judgeText = '';
     this.judgeTier = 0;
     this.judgeShownAt = -Infinity;
@@ -513,9 +528,8 @@ export class Game {
     for (const n of this.notes) {
       if (n.lane === lane && n.holdPhase === 'grace' && repressHold(n, nowMs)) {
         // 連打を再開する（ピッチの上がり具合は経過分の progress で引き継ぐ）
-        const feverNow = isFever(this.entry?.data.fever ?? [], nowMs / 1000);
         const progress = Math.min(1, Math.max(0, (nowMs - n.timeMs) / Math.max(1, n.holdMs)));
-        startHoldSound(n, effectiveTier(this.combo, feverNow), n.timeMs + n.holdMs - nowMs, progress, this.entry?.data.bpm ?? 120);
+        startHoldSound(n, comboTier(this.combo), n.timeMs + n.holdMs - nowMs, progress, this.entry?.data.bpm ?? 120);
         return;
       }
     }
@@ -532,14 +546,13 @@ export class Game {
   private hitNote(note: PlayNote, judge: HeadJudge, nowMs: number): void {
     note.state = 1;
     const lane = note.lane;
-    const fever = isFever(this.entry?.data.fever ?? [], nowMs / 1000);
-    this.score += scoreFor(judge, fever);
+    this.score += scoreFor(judge);
     this.combo++;
     this.maxCombo = Math.max(this.maxCombo, this.combo);
-    // コンボ tier（FEVER 中は +1）で演出とヒット音が派手になる
-    const tier = effectiveTier(this.combo, fever);
+    // コンボ tier で演出とヒット音が派手になる
+    const tier = comboTier(this.combo);
     this.showJudge(judge, tier);
-    this.burst(lane, judge === 'perfect' ? 0 : judge === 'great' ? 1 : 2, fever, tier);
+    this.burst(lane, judge === 'perfect' ? 0 : judge === 'great' ? 1 : 2, tier);
     playHitSound(judge, tier);
     vibrateHit(judge);
     this.syncCombo();
@@ -641,7 +654,7 @@ export class Game {
   /** コンボと tier をテスト用の入口（data 属性）へ出す */
   private syncCombo(): void {
     setData('combo', this.combo);
-    setData('comboTier', effectiveTier(this.combo, false));
+    setData('comboTier', comboTier(this.combo));
   }
 
   /** テスト/撮影用: コンボ数を直接セットする（30の倍数ならコンボ演出も登場する） */
@@ -667,25 +680,25 @@ export class Game {
     this.particles.push(p);
   }
 
-  /** ヒット演出: ノーツの膨らむ残像＋広がる輪＋粒子。FEVER 中は金色、コンボ tier が高いほど派手 */
-  private burst(lane: number, level: 0 | 1 | 2, fever: boolean, tier: number): void {
+  /** ヒット演出: ノーツの膨らむ残像＋広がる輪＋粒子。コンボ tier が高いほど派手 */
+  private burst(lane: number, level: 0 | 1 | 2, tier: number): void {
     const fx = tierFx(tier);
     const lw = this.width / 4;
     const cx = lane * lw + lw / 2;
     const cy = this.height * HIT_Y_RATIO;
-    const c = fever ? GOLD : LANE_COLORS[lane];
+    const c = LANE_COLORS[lane];
     this.pops.push({ lane, age: 0, life: POP_LIFE, c, maxScale: 1.5 * fx.popMul });
     this.rings.push({
       x: cx,
       y: cy,
       age: 0,
       life: RING_LIFE,
-      maxR: (fever ? 58 : 46) * fx.ringMul,
+      maxR: 46 * fx.ringMul,
       c,
       widthMul: fx.ringWidthMul,
     });
     if (this.rings.length > 24) this.rings.shift();
-    const n = Math.round(((level === 0 ? 22 : level === 1 ? 14 : 8) + (fever ? 6 : 0)) * fx.particleMul);
+    const n = Math.round((level === 0 ? 22 : level === 1 ? 14 : 8) * fx.particleMul);
     for (let i = 0; i < n; i++) {
       const an = Math.random() * Math.PI * 2;
       const sp = (140 + Math.random() * (level === 0 ? 380 : 260)) * (0.9 + 0.1 * tier);
@@ -779,7 +792,11 @@ export class Game {
     this.lastFrameAt = frameAt;
     const nowSec = frameAt - this.startAt;
     const nowMs = nowSec * 1000;
-    const fever = isFever(this.entry?.data.fever ?? [], nowSec);
+    // このフレームのコンボ段階。上がった瞬間は tierFlash を立てて縁の光を強める
+    const tier = comboTier(this.combo);
+    if (tier > this.lastTier) this.tierFlash = 1;
+    this.lastTier = tier;
+    this.tierFlash = Math.max(0, this.tierFlash - dt * 1.6);
     const fall = DIFFICULTIES[this.difficulty].fallSeconds;
 
     // 歌詞の現在行が変わったら通知する（表示は main.ts 側の DOM）
@@ -807,23 +824,22 @@ export class Game {
       if (n.holdPhase !== 'holding' && n.holdPhase !== 'grace') continue;
       const ev = advanceHold(n, nowMs);
       if (ev.ticks > 0) {
-        this.score += ev.ticks * HOLD_TICK_SCORE * (fever ? FEVER_MULTIPLIER : 1);
+        this.score += ev.ticks * HOLD_TICK_SCORE;
         setData('score', this.score);
       }
       if (ev.completed && n.headJudge) {
         this.counts[n.headJudge]++;
-        this.score += HOLD_COMPLETE_BONUS[n.headJudge] * (fever ? FEVER_MULTIPLIER : 1);
+        this.score += HOLD_COMPLETE_BONUS[n.headJudge];
         this.holdsCompleted++;
         setData('holdsCompleted', this.holdsCompleted);
         setData('score', this.score);
         // 連打は尾の時刻ちょうどで止め、完走音へつなぐ
         stopHoldSound(n);
-        playCompleteSound(n.headJudge, effectiveTier(this.combo, fever));
+        playCompleteSound(n.headJudge, comboTier(this.combo));
         this.burst(
           n.lane,
           n.headJudge === 'perfect' ? 0 : n.headJudge === 'great' ? 1 : 2,
-          fever,
-          effectiveTier(this.combo, fever),
+          comboTier(this.combo),
         );
       }
       if (ev.failed) {
@@ -843,7 +859,8 @@ export class Game {
     if (this.bg?.complete && this.bg.naturalWidth) {
       this.drawJacketBackground(W, H);
     }
-    g.fillStyle = fever ? 'rgba(30,20,0,.35)' : 'rgba(6,8,16,.62)';
+    // ベール（暗幕）はコンボ段階が上がるほど薄くし、ジャケットが冴えてくる
+    g.fillStyle = `rgba(6,8,16,${TIER_VEIL_ALPHA[tier].toFixed(2)})`;
     g.fillRect(0, 0, W, H);
     // コンボ演出の登場中は、絵を背景として敷く。レーン・ノーツはこの後に描くので、
     // ノーツは常にはっきり手前に見える（全面カットインのように絵がノーツへ被る形にはしない）。
@@ -881,15 +898,22 @@ export class Game {
         g.fillRect(0, 0, W, H);
       }
     }
-    if (fever) {
-      g.strokeStyle = 'rgba(255,209,102,.85)';
-      g.lineWidth = 6;
-      g.strokeRect(3, 3, W - 6, H - 6);
+    // 画面の縁の光（FEVER の枠の光に代わるコンボ演出）: 段位が上がるほど
+    // 強く・太くなる。上がった瞬間は tierFlash でひときわ光り、ミスで消える
+    const edge = TIER_EDGE[tier];
+    if (edge) {
+      const boost = this.tierFlash * 0.3;
+      g.strokeStyle = `rgba(${edge.rgb},${(edge.alpha * 0.35 + boost * 0.4).toFixed(3)})`;
+      g.lineWidth = edge.width * 2.4;
+      g.strokeRect(edge.width * 1.2, edge.width * 1.2, W - edge.width * 2.4, H - edge.width * 2.4);
+      g.strokeStyle = `rgba(${edge.rgb},${Math.min(1, edge.alpha + boost).toFixed(3)})`;
+      g.lineWidth = edge.width;
+      g.strokeRect(edge.width / 2 + 1, edge.width / 2 + 1, W - edge.width - 2, H - edge.width - 2);
     }
     const lw = W / 4;
     const hy = H * HIT_Y_RATIO;
-    // このフレームの演出段階（コンボ×FEVER）。フラッシュとコンボ表示に使う
-    const frameFx = tierFx(effectiveTier(this.combo, fever));
+    // このフレームの演出段階（コンボのみで決まる）。フラッシュとコンボ表示に使う
+    const frameFx = tierFx(tier);
     for (let i = 0; i < 4; i++) {
       if (this.flash[i] > 0) {
         const alpha = Math.min(200, Math.round(this.flash[i] * 70 * frameFx.flashMul));
@@ -1047,11 +1071,6 @@ export class Game {
     g.globalAlpha = 1;
 
     g.textAlign = 'center';
-    if (fever) {
-      g.fillStyle = GOLD;
-      g.font = 'bold 24px sans-serif';
-      g.fillText('FEVER ×2', W / 2, 72);
-    }
     if (nowSec < 0) {
       g.fillStyle = '#fff';
       g.font = 'bold 40px sans-serif';
@@ -1060,7 +1079,7 @@ export class Game {
     if (this.combo > 1) {
       // コンボ表示も tier で色・大きさが変わる（高 tier では光る）
       const comboPx = Math.round(44 * frameFx.comboScale);
-      if (effectiveTier(this.combo, fever) >= 3) {
+      if (tier >= 3) {
         g.shadowColor = frameFx.comboColor;
         g.shadowBlur = 16;
       }

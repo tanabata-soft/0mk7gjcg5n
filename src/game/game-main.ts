@@ -20,7 +20,7 @@ import { SONGS, songById, type SongEntry } from './charts';
 import { FULLCOMBO_IMAGE_URL, FULLCOMBO_VOICE_URL, comboPatternDef } from './presentation';
 import { Game, type GameResult } from './game';
 import { exposeTestApi, setData } from '../debug';
-import { isSoundOn, playFullComboVoice, playUiClick, preloadFullComboVoice, preloadHitSample, setSound } from './sound';
+import { isSoundOn, playFullComboVoice, playSwipeSound, playUiClick, preloadFullComboVoice, preloadHitSample, setSound } from './sound';
 import { isVibrateOn, setVibrate } from './haptics';
 import { audioState, isUnlocked, unlockAudio } from './audio';
 import { load, migrateStorage, requestPersist, save } from './storage';
@@ -57,7 +57,8 @@ function initGameMode(): { enter: () => void } {
   function show(next: Screen): void {
     screen = next;
     $('menu-screen').hidden = next !== 'menu';
-    $('game-screen').hidden = next !== 'game';
+    // 結果は演奏画面の上に重ねるので、結果表示中も演奏画面は出したままにする
+    $('game-screen').hidden = next === 'menu';
     $('result-screen').hidden = next !== 'result';
     setData('screen', next);
   }
@@ -135,7 +136,7 @@ function initGameMode(): { enter: () => void } {
     selectedSong = id;
     save('song', selectedSong);
     renderMenu();
-    if (changed) playUiClick();
+    if (changed) playSwipeSound();
     if (scroll) scrollToSong(id, true);
   }
 
@@ -169,7 +170,7 @@ function initGameMode(): { enter: () => void } {
           selectedSong = best;
           save('song', selectedSong);
           renderMenu();
-          playUiClick();
+          playSwipeSound();
         }
       }, 120);
     },
@@ -207,6 +208,7 @@ function initGameMode(): { enter: () => void } {
     $<HTMLButtonElement>('carousel-prev').disabled = slideIndex(selectedSong) <= 0;
     $<HTMLButtonElement>('carousel-next').disabled = slideIndex(selectedSong) >= SONGS.length - 1;
     for (const b of diffButtons) b.setAttribute('aria-pressed', String(b.dataset.diff === selectedDiff));
+    $('menu-best-label').textContent = `${songById(selectedSong).data.title}・${DIFFICULTIES[selectedDiff].label} のベストスコア`;
     $('menu-best').textContent = String(bestOf(selectedSong, selectedDiff));
     $('offset-value').textContent = `${offsetMs > 0 ? '+' : ''}${offsetMs}ms`;
     renderToggle('sound-button', isSoundOn());

@@ -40,6 +40,10 @@ test('曲と難易度を選べる', async ({ page }) => {
   await page.locator('#diff-row [data-diff="hard"]').click();
   await expect(page.locator('body')).toHaveAttribute('data-difficulty', 'hard');
   await expect(page.locator('#diff-row [data-diff="hard"]')).toHaveAttribute('aria-pressed', 'true');
+  // ベストスコアは曲選択画面に、選んでいる曲・難易度のラベルつきで出る
+  await expect(page.locator('#menu-best-label')).toHaveText('千葉の海に溶けてゆく・むずかしい のベストスコア');
+  // 結果カードは演奏画面の中にあり、演奏画面の上に重ねて出す構造になっている
+  await expect(page.locator('#game-screen #result-screen')).toHaveCount(1);
   // ドットからも選べる
   await page.locator('.carousel-dot[data-song="yoru"]').click();
   await expect(page.locator('body')).toHaveAttribute('data-song', 'yoru');
@@ -51,6 +55,8 @@ test('設定ダイアログが開閉できる', async ({ page }) => {
   await expect(page.locator('#settings-dialog')).toBeVisible();
   // 操作説明（遊び方）は設定の中にある
   await expect(page.locator('#settings-dialog')).toContainText('遊び方');
+  // ベストスコアは設定には出さない（曲選択画面にラベルつきで出す）
+  await expect(page.locator('#settings-dialog .best-line')).toHaveCount(0);
   await expect(page.locator('#settings-dialog')).toContainText('ノーツが下の枠に重なったらタップ');
   // オフセットの増減が保存・表示される
   await page.locator('#offset-plus').click();
@@ -63,22 +69,26 @@ test('設定ダイアログが開閉できる', async ({ page }) => {
 test('選択を変えると確認音が鳴る', async ({ page }) => {
   await page.locator('#btn-open-game').click();
   await page.evaluate(() => {
-    const w = window as unknown as { __uiSounds: number };
+    const w = window as unknown as { __uiSounds: number; __swipeSounds: number };
     w.__uiSounds = 0;
+    w.__swipeSounds = 0;
     document.addEventListener('app:sound', (e) => {
-      if ((e as CustomEvent).detail?.kind === 'ui') w.__uiSounds += 1;
+      const kind = (e as CustomEvent).detail?.kind;
+      if (kind === 'ui') w.__uiSounds += 1;
+      if (kind === 'swipe') w.__swipeSounds += 1;
     });
   });
-  // 難易度を変える
+  // 難易度を変えるとクリック音（ui）
   await page.locator('#diff-row [data-diff="hard"]').click();
   await expect
     .poll(() => page.evaluate(() => (window as unknown as { __uiSounds: number }).__uiSounds))
     .toBeGreaterThanOrEqual(1);
-  // 曲を変える
+  // 曲を変えるとスワイプ音（swipe）で、クリック音は増えない
   await page.locator('.carousel-dot[data-song="umi"]').click();
   await expect
-    .poll(() => page.evaluate(() => (window as unknown as { __uiSounds: number }).__uiSounds))
-    .toBeGreaterThanOrEqual(2);
+    .poll(() => page.evaluate(() => (window as unknown as { __swipeSounds: number }).__swipeSounds))
+    .toBeGreaterThanOrEqual(1);
+  await expect(page.evaluate(() => (window as unknown as { __uiSounds: number }).__uiSounds)).resolves.toBe(1);
 });
 
 test('ゲームが始まり、Canvas が表示され、左上タップでメニューに戻る', async ({ page }) => {
@@ -98,6 +108,30 @@ test('ゲームが始まり、Canvas が表示され、左上タップでメニ�
   await page.locator('#game-canvas').dispatchEvent('pointerdown', { clientX: 20, clientY: 20 });
   await expect(page.locator('#menu-screen')).toBeVisible();
   await expect(page.locator('body')).toHaveAttribute('data-game', 'menu');
+});
+
+test('結果は演奏画面の上に重なって出て、コンボ段階がコンボ数で上がる', async ({ page }) => {
+  // デバッグ API（finishNow / setCombo）を使うため ?debug=1 で開き直す
+  await page.goto('/?debug=1');
+  await expect(page.locator('#view-cover')).toBeVisible();
+  await page.locator('#btn-open-game').click();
+  await page.locator('#start-button').click();
+  await expect(page.locator('body')).toHaveAttribute('data-game', 'playing', { timeout: 30_000 });
+  // コンボ 120 で演出段階は最上段（tier 4）
+  await page.evaluate(() => {
+    const api = (window as unknown as { __pwaTest?: { setCombo?: (n: number) => void } }).__pwaTest;
+    api?.setCombo?.(120);
+  });
+  await expect(page.locator('body')).toHaveAttribute('data-combo-tier', '4');
+  // いまの成績で結果へ進む: 演奏画面は出したまま、結果カードが上に重なる
+  await page.evaluate(() => {
+    const api = (window as unknown as { __pwaTest?: { finishNow?: () => void } }).__pwaTest;
+    api?.finishNow?.();
+  });
+  await expect(page.locator('body')).toHaveAttribute('data-screen', 'result');
+  await expect(page.locator('#game-screen')).toBeVisible();
+  await expect(page.locator('#result-screen')).toBeVisible();
+  await expect(page.locator('#menu-screen')).toBeHidden();
 });
 
 test('チーマイモード画面からトップへ戻れる（設定の横の「戻る」ボタン）', async ({ page }) => {

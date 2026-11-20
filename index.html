@@ -107,6 +107,8 @@
             <button type="button" class="opt" data-diff="hard" aria-pressed="false">むずかしい</button>
           </div>
 
+          <p class="muted best-line"><span id="menu-best-label">ベストスコア</span> <span id="menu-best">0</span></p>
+
           <button id="start-button" type="button" class="primary go">スタート</button>
           <p id="start-status" class="muted" role="status"></p>
 
@@ -137,22 +139,21 @@
             <p class="fullcombo-text">FULL COMBO</p>
             <p class="fullcombo-sub"><span id="fullcombo-combo">0</span> COMBO</p>
           </div>
+          <!-- 結果は別画面にせず、終わった演奏画面の上にカードを重ねて出す（オーナー指示 2026-11-20） -->
+          <section id="result-screen" class="card result" hidden aria-live="polite">
+            <p class="rank" id="result-rank">S</p>
+            <p id="result-autoplay" class="autoplay-badge" hidden>オートプレイ</p>
+            <p id="result-song"></p>
+            <p>スコア <span id="result-score"></span>（ベスト <span id="result-best"></span>）</p>
+            <p id="result-counts"></p>
+            <p>精度 <span id="result-accuracy"></span>%　最大コンボ <span id="result-combo"></span></p>
+            <div class="row">
+              <button id="again-button" type="button" class="opt">もう一度</button>
+              <button id="back-button" type="button" class="opt">メニューへ</button>
+            </div>
+          </section>
           <p id="game-live" class="sr-only" aria-live="polite"></p>
         </div>
-
-        <!-- 結果画面 -->
-        <section id="result-screen" class="card result" hidden aria-live="polite">
-          <p class="rank" id="result-rank">S</p>
-          <p id="result-autoplay" class="autoplay-badge" hidden>オートプレイ</p>
-          <p id="result-song"></p>
-          <p>スコア <span id="result-score"></span>（ベスト <span id="result-best"></span>）</p>
-          <p id="result-counts"></p>
-          <p>精度 <span id="result-accuracy"></span>%　最大コンボ <span id="result-combo"></span></p>
-          <div class="row">
-            <button id="again-button" type="button" class="opt">もう一度</button>
-            <button id="back-button" type="button" class="opt">メニューへ</button>
-          </div>
-        </section>
       </div>
 
       <!-- 設定（メニュー下部の設定ボタンから開く） -->
@@ -161,8 +162,6 @@
           <h2 id="settings-title">設定</h2>
           <button id="settings-close" type="button" class="dialog-close" aria-label="設定を閉じる">✕</button>
         </div>
-
-        <p class="muted best-line">ベストスコア: <span id="menu-best">0</span></p>
 
         <h3 class="sub-title">遊び方</h3>
         <p class="note">ノーツが下の枠に重なったらタップ。長い帯は終わるまで押しっぱなし（パソコンは D / F / J / K）。演奏は左上の ✕ で中断できます。</p>
@@ -191,7 +190,7 @@
           <span>歌詞表示</span>
           <button id="lyrics-button" type="button" class="toggle" aria-label="歌詞表示" aria-pressed="true"><span class="toggle-state">オン</span></button>
         </div>
-        <p class="note">演奏中、画面の下に歌詞を3行出します。</p>
+        <p class="note">演奏中、ジャケットの下に歌詞を3行出します。</p>
 
         <div class="toggle-row">
           <span>デバッグモード</span>
