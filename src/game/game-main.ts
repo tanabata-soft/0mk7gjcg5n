@@ -49,7 +49,9 @@ function initGameMode(): { enter: () => void } {
   let selectedDiff: Difficulty = load<Difficulty>('difficulty', 'easy');
   if (!(selectedDiff in DIFFICULTIES)) selectedDiff = 'easy';
   let offsetMs = clampOffset(load<number>('offset', 0));
-  let lyricsOn = load<boolean>('lyrics', true);
+  // 効果音と歌詞表示のオンオフは廃止した（オーナー指示 2026-11-20）。どちらも常にオン。
+  // 過去にオフで保存した端末でも戻せるよう、起動時に効果音をオンへ上書きしておく
+  setSound(true);
   // オートプレイは設定には置かず、バージョン表示の5回タップで出るデバッグモードの
   // パネルから切り替える（オーナー指示 2026-11-20）。効くのはデバッグモード中だけ
   let autoplayOn = load<boolean>('autoplay', false);
@@ -307,16 +309,13 @@ function initGameMode(): { enter: () => void } {
       }, 180);
     }
     $('offset-value').textContent = `${offsetMs > 0 ? '+' : ''}${offsetMs}ms`;
-    renderToggle('sound-button', isSoundOn());
     renderToggle('vibrate-button', isVibrateOn());
-    renderToggle('lyrics-button', lyricsOn);
-    $('lyrics').hidden = !lyricsOn;
     setData('song', selectedSong);
     setData('difficulty', selectedDiff);
     setData('offset', offsetMs);
     setData('sound', isSoundOn() ? 'on' : 'off');
     setData('vibrate', isVibrateOn() ? 'on' : 'off');
-    setData('lyrics', lyricsOn ? 'on' : 'off');
+    setData('lyrics', 'on');
     setData('debugMode', isDebug() ? 'on' : 'off');
     setData('autoplay', autoplayOn ? 'on' : 'off');
   }
@@ -331,19 +330,8 @@ function initGameMode(): { enter: () => void } {
   }
   $('offset-minus').addEventListener('click', () => setOffset(offsetMs - 10));
   $('offset-plus').addEventListener('click', () => setOffset(offsetMs + 10));
-  $('sound-button').addEventListener('click', () => {
-    setSound(!isSoundOn());
-    renderMenu();
-    playUiClick();
-  });
   $('vibrate-button').addEventListener('click', () => {
     setVibrate(!isVibrateOn());
-    renderMenu();
-    playUiClick();
-  });
-  $('lyrics-button').addEventListener('click', () => {
-    lyricsOn = !lyricsOn;
-    save('lyrics', lyricsOn);
     renderMenu();
     playUiClick();
   });
@@ -628,7 +616,7 @@ function initGameMode(): { enter: () => void } {
       songMs: game.songPositionMs(),
       sound: isSoundOn(),
       vibrate: isVibrateOn(),
-      lyrics: lyricsOn,
+      lyrics: true,
       debugMode: isDebug(),
       autoplay: autoplayOn,
       latency: latencyUi,
@@ -643,10 +631,6 @@ function initGameMode(): { enter: () => void } {
       }
       if (typeof patch.difficulty === 'string' && patch.difficulty in DIFFICULTIES) selectedDiff = patch.difficulty as Difficulty;
       if (typeof patch.offset === 'number') offsetMs = clampOffset(patch.offset);
-      if (typeof patch.lyrics === 'boolean') {
-        lyricsOn = patch.lyrics;
-        save('lyrics', lyricsOn);
-      }
       if (typeof patch.debugMode === 'boolean') {
         // デバッグモードは CD 側と共有の旗（バージョン表示の5回タップと同じもの）
         setDebug(patch.debugMode);
@@ -666,6 +650,13 @@ function initGameMode(): { enter: () => void } {
         const ac = audioContext() as AudioContext & { resume: () => Promise<void> };
         ac.resume = () => new Promise<void>(() => undefined);
         void ac.suspend();
+      }
+      // E2E 用: state は running のまま currentTime だけが止まる状態の再現
+      // （メニューで背景へ行き復帰してから始めた実機の症状用）
+      if (patch.audio === 'stick') {
+        const ac = audioContext();
+        const fixed = ac.currentTime;
+        Object.defineProperty(ac, 'currentTime', { configurable: true, get: () => fixed });
       }
       renderMenu();
     },

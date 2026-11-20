@@ -824,7 +824,10 @@
   }
 }
 
-/* 設定のダイアログ（インストール方法と同じ体裁で、世界観の色に合わせる） */#view-game .settings-dialog {
+/* 設定のダイアログ（インストール方法と同じ体裁で、世界観の色に合わせる）。
+   全体リセット（* { margin: 0 }）で dialog 標準の margin: auto が消え、
+   左寄せになっていたため、明示してセンタリングする（オーナー指示 2026-11-20） */#view-game .settings-dialog {
+  margin: auto;
   width: min(448px, calc(100vw - 32px));
   max-height: calc(100dvh - 32px);
   overflow-y: auto;

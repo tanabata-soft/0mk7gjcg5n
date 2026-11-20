@@ -223,6 +223,9 @@ export class Game {
   private clockSeenAt = 0;
   private clockAdvanceWall = 0;
   private audioFrozen = false;
+  /** READY 中の凍結で開始を初期化し直したか（1回の開始につき1回まで）と、その実行中フラグ */
+  private readyReinitUsed = false;
+  private reiniting = false;
   private durationSec = 0;
   private bg: HTMLImageElement | null = null;
   private flash = [0, 0, 0, 0];
@@ -498,6 +501,7 @@ export class Game {
     this.clockSeenAt = nowSeconds();
     this.clockAdvanceWall = performance.now();
     this.audioFrozen = false;
+    this.readyReinitUsed = false;
     setData('audioFrozen', 'off');
     playBuffer(buf, this.startAt);
     this.playing = true;
@@ -505,6 +509,37 @@ export class Game {
     setData('score', 0);
     cancelAnimationFrame(this.raf);
     this.raf = requestAnimationFrame(this.loop);
+  }
+
+  /**
+   * READY 中に音声時計が凍ったときの、開始の初期化し直し。AudioContext を
+   * 作り直し、READY の残り時間を新しい時計へ引き継いで曲の開始を予約し直す。
+   * 曲はまだ始まっていないので、続きからの再開ではなく開始のやり直しになる。
+   * 作り直した context がまだ止まっている場合は、次のタップ（pressLane の
+   * unlock）で動き出す。それでも直らなければ凍結検知がメニューへ戻す。
+   */
+  private async reinitStart(): Promise<void> {
+    if (this.reiniting || !this.playing || !this.entry) return;
+    this.reiniting = true;
+    this.readyReinitUsed = true;
+    const session = this.startSession;
+    try {
+      const remaining = Math.max(0, this.startAt - nowSeconds());
+      recreateAudioContext();
+      unlockAudio();
+      const buf = await loadBuffer(this.entry.audioUrl);
+      if (this.destroyed || !this.playing || session !== this.startSession) return;
+      const now = nowSeconds();
+      this.startAt = now + remaining;
+      playBuffer(buf, this.startAt, 0);
+      this.lastFrameAt = now;
+      this.clockSeenAt = now;
+      this.clockAdvanceWall = performance.now();
+    } catch {
+      // 直らなければ次の凍結検知でメニューへ戻す
+    } finally {
+      this.reiniting = false;
+    }
   }
 
   /** 演奏を止めてメニューに戻る（結果は残さない） */
@@ -540,7 +575,7 @@ export class Game {
     // resume だけでは戻らないことがあるため、ジェスチャの中で効く強い unlock（resume＋
     // 音声セッション再設定＋無音バッファ）を使う（2026-11-20 実機で「READY のまま
     // タッチできない」症状が出たための強化）
-    if (audioContext().state !== 'running') unlockAudio();
+    if (audioContext().state !== 'running' || this.audioFrozen) unlockAudio();
     this.flash[lane] = 1;
     // 押した場所に波紋を出す（キーボードのときはレーンの判定ライン中央）
     const lw = this.width / 4;
@@ -820,28 +855,33 @@ export class Game {
       }
     }
     // 時計の凍結検知: 音声時計が壁時計で 1.5 秒以上進んでいなければ「止まっている」と
-    // みなす。READY 中なら画面にタップでの復帰を促し（タップ側は pressLane の強い
-    // unlock で戻す）、演奏開始後なら下の分岐で初期化してメニューへ戻す。
-    // 凍ったまま無言だと「タッチできない」ように見える（2026-11-20 実機報告）
+    // みなす。判定は状態（state）ではなく時計の進み具合そのもので行う。メニュー画面で
+    // バックグラウンドへ行き復帰してから始めた場合、state は running と出るのに
+    // currentTime だけが止まったままになることが実機で確認されたため（2026-11-20）。
+    // 凍ったまま無言だと「タッチできない」ように見える
     if (frameAt > this.clockSeenAt + 0.001) {
       this.clockSeenAt = frameAt;
       this.clockAdvanceWall = performance.now();
     }
-    const frozen = audioContext().state !== 'running' && performance.now() - this.clockAdvanceWall > 1500;
+    const frozen = performance.now() - this.clockAdvanceWall > 1500;
     if (frozen !== this.audioFrozen) {
       this.audioFrozen = frozen;
       setData('audioFrozen', frozen ? 'on' : 'off');
     }
-    // 演奏が始まった後の凍結は、無理に再開せず初期化してメニューへ戻す
-    // （オーナー指示 2026-11-20: 曲の途中でアプリを切り替えて戻ると叩けなく
-    // なるため、続きからの再開ではなく初期化再スタートでよい）。音声の
-    // 仕組みも作り直して、次のスタートがまっさらな状態から始まるようにする。
-    // READY 中（位置が負）の凍結は対象外で、従来どおりタップでの復帰を案内する
-    if (frozen && frameAt - this.startAt > 0.1) {
-      this.resetInput();
-      recreateAudioContext();
-      this.abort();
-      return;
+    if (frozen) {
+      const posSec = frameAt - this.startAt;
+      if (posSec > 0.1 || this.readyReinitUsed) {
+        // 演奏が始まった後の凍結は、無理に再開せず初期化してメニューへ戻す
+        // （オーナー指示 2026-11-20: 続きからの再開ではなく初期化再スタートで
+        // よい）。音声の仕組みも作り直して、次のスタートがまっさらな状態から
+        // 始まるようにする。READY の初期化し直しでも直らなかった場合もここへ来る
+        this.resetInput();
+        recreateAudioContext();
+        this.abort();
+        return;
+      }
+      // READY 中の凍結は、開始そのものを初期化し直す（曲はまだ始まっていない）
+      void this.reinitStart();
     }
     // 経過時間（秒）。タブ復帰などで大きく飛んだときは 50ms に丸める
     const dt = Math.min(0.05, Math.max(0, frameAt - this.lastFrameAt));
