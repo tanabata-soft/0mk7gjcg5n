@@ -28,6 +28,18 @@ export interface SongEntry {
    * 実測（2026-11-20）: keiyo 14 / umi 32 / yoru 0（枠なし）
    */
   frameInset: number;
+  /** カルーセルでのジャケットの寄せ（CSS の object-position）。未指定は中央 */
+  slidePosition?: string;
+  /** ボーナストラックなら true（スライドに金の BONUS チップが出る） */
+  bonus?: boolean;
+  /**
+   * 曲のテーマ色。NK-S003 のゲーム画面はピンク基調で固定（game.css が
+   * --primary: #ff4d8d を決めている）ため、全曲とも同じ値を入れて
+   * applyAccent() が今の見た目をそのまま保つようにする
+   */
+  accent: string;
+  /** accent の RGB 成分（"r g b"、CSS の rgb(var(--song-accent-rgb) / a) 用） */
+  accentRgb: string;
   /** 収録アルバム名（表示用） */
   album: string;
   genre: string;
@@ -46,6 +58,9 @@ export const SONGS: SongEntry[] = [
     audioUrl: keiyoAudio,
     jacketUrl: keiyoJacket,
     frameInset: 14,
+    slidePosition: '80% 50%',
+    accent: '#ff4d8d',
+    accentRgb: '255 77 141',
     album: 'NK-S003 京葉線の午後',
     genre: 'Seaside Pop',
   },
@@ -56,6 +71,9 @@ export const SONGS: SongEntry[] = [
     audioUrl: umiAudio,
     jacketUrl: umiJacket,
     frameInset: 32,
+    slidePosition: '90% 50%',
+    accent: '#ff4d8d',
+    accentRgb: '255 77 141',
     album: 'NK-S003 京葉線の午後',
     genre: 'Seafoam Ballad',
   },
@@ -66,6 +84,9 @@ export const SONGS: SongEntry[] = [
     audioUrl: yoruAudio,
     jacketUrl: yoruJacket,
     frameInset: 0,
+    bonus: true,
+    accent: '#ff4d8d',
+    accentRgb: '255 77 141',
     album: 'NK-S003 京葉線の午後',
     genre: 'Festival Pop',
   },
