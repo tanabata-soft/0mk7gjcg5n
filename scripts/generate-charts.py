@@ -1,5 +1,60 @@
 #!/usr/bin/env python3
-"""譜面生成 v5 / v4: src/game/assets/*.mp3 を解析して src/game/data/charts.json を作る。
+"""譜面生成 v6-1.2 / v6-1.1 / v6-1 / v5 / v4: src/game/assets/*.mp3 を解析して src/game/data/charts.json を作る。
+
+v6-1.2 の変更点（v6-1.1 の残差への上流対策）:
+- 8分位置のレーン配分を上流で均す: Realizer が 8分位置（sub 偶数）だけの
+  レーン別カウント（eighth_counts）を別に持ち、フィットのコストにその分布
+  均衡（EIGHTH_BALANCE_W=2.0。全体分布の重み 6.0 の 1/3）を加えた。
+  normal の候補プールは hard の8分位置
+  サブセットなので、全体分布が検証範囲内にあっても8分位置だけレーンが
+  偏ると、thin の最少レーン律速で normal 全体が削れる（umi normal の
+  レーン0候補 87→66 の実例）。下流の密度下限ガード（v6-1.1）に頼る前に、
+  プールの最少レーン自体を保つのが狙い。ガードは安全網として残す。
+- sustain 閾値の曲別上書き口: sustain_mode 判定の閾値（従来は絶対定数
+  SUSTAIN_HI=0.50 / SUSTAIN_LO=0.30）を、SONGS メタデータの sustain_hi /
+  sustain_lo で曲別に上書きできるようにした。未指定なら従来値で挙動不変。
+  sustain は曲内95パーセンタイル正規化なので、持続成分の分布が極端な曲では
+  閾値の効きが変わるための調整口。
+
+v6-1.1 の変更点（NK-S003 実曲トライアルの所見から）:
+- モチーフ最小長: 非サビモチーフ再利用の対象を「2小節以上のフレーズ同士」に
+  限定した。1小節だけのフレーズはシグネチャが短すぎて、無関係でも類似度が
+  高く出て組になってしまうため（umi で bars 31 ↔ 63 の1小節組、類似度
+  0.883 が発火した実例）。閾値（絶対下限・相対下限）は従来どおり。
+- normal／easy の密度下限ガード: thin の目標総数は「最も候補の少ない
+  レーンが2割を確保できる量」で決まるため、パターン配分の変化で1レーンの
+  候補だけが減ると、プール総数がほぼ変わらなくても全体が大きく割り込む
+  （umi normal: プール 401→381 なのにレーン0候補 87→66 が目標 410→321 を
+  招き、最終 375→293 の −22% になった実例）。そこで、thin の目標が cap
+  でなく最少レーン由来で決まった難易度に限って、間引き後に候補プールの
+  DENSITY_FLOOR_RATIO 倍を下限とし、割り込んだ分は落ちた候補を強さ順に
+  戻すガード（fill_density_floor）を入れた。cap 律速の曲（プールが cap を
+  大きく上回り、保持率が低く出るのが従来どおりの曲）には発動しない。
+  戻す候補は上位難易度の確定集合の中だけ（入れ子維持）、レーン割合・
+  最小間隔・同一レーン3連・両親指の同側連なりを見て安全なものだけにし、
+  戻した後は修復を回し直す。
+
+v6-1 の変更点:
+- V6-1a 持続/打撃によるパターン分岐（旧称 V5-4）: スロットに持続度
+  （harm_rms を曲内95パーセンタイルで正規化した sustain）を格納し、フレーズの
+  主レイヤーと組み合わせて sustain_mode（sustained / percussive / None）を決め、
+  plan_phrase のパターン確率（jack・burst・sparse の比率）と長押し候補の
+  優先度・可否に反映する。持続的（melody/vocal かつ持続度高）→ stair/wave と
+  長押しを優遇。打撃的（drums または持続度低）→ jack を優遇し長押しを抑える。
+- V6-1b 非サビ反復セクションのモチーフ再利用: FEVER 外のフレーズ同士の類似度
+  （strength 列・energy・F0 コンターのシグネチャのコサイン類似度）を曲内相対の
+  閾値で判定し、再登場フレーズは初出のパターン計画を再利用する。2回目は鏡像、
+  3回目以降は末尾変化（サビの従来扱いに倣う）。サビは従来のモチーフ処理のまま。
+- V6-2 フリックの生成器統合（曲別メタデータ flick: True の曲だけ。既定 OFF）:
+  NK-S006 v1.4.2 の確定方針（rework-chorus-patterns.py）を生成器ルール化した。
+  割合ありきの機械変換はしない。フリックは音楽的な「決め」だけに置く:
+  サビ内は第1サビで決めた相対位置（サビ入り・フレーズ頭・強拍アクセント・
+  F0 跳躍・フレーズ末）を全サビへ同じ相対位置で適用し、サビ外はフレーズ頭の
+  強アクセント／クライマックス頭／サビ直前の一打だけに絞る。適格性と難易度別
+  最小間隔（easy 4500ms / normal 2400ms / hard 1400ms、下限 1200ms）は
+  NK-S006 の実績どおり。出力形式は NK-S006 と同じ [time, lane, 0, "flick"]。
+  注意: テンプレート側ランタイム（src/game）は現時点でフリック未対応のため、
+  既定 OFF。ON にするのはランタイム対応済みの作品側だけにすること。
 
 v5 の変更点（根拠は docs/CHART-DESIGN.md の「譜面 v5」節、曲別方針は SONGS のメタデータ）:
 - V5-1 特徴量レイヤー: HPSS で打撃成分（ドラム）と持続成分を分け、持続成分の
@@ -89,11 +144,16 @@ HOP = 512
 #   audio: 音源（MP3。AAC/m4a はヘッドレス Chromium がデコードできないため使わない）
 #   fever: FEVER（サビ）区間 [開始秒, 終了秒) の列。歌詞字幕や波形の盛り上がりから決める
 #   chart_v5: True で v5（特徴量レイヤー＋フレーズ単位の主レイヤー選択）を使う
+#   flick: True で v6-2 のフリック配置を有効にする（既定 OFF。テンプレート側
+#     ランタイムはフリック未対応なので、対応済みの作品でのみ True にすること）
 #   layer_bias: 主レイヤー選択の曲別バイアス（drums / melody / vocal への加算）
 #   chorus_layer: サビ（FEVER）で優先する主レイヤー
 #   chorus_bonus: サビの chorus_layer へのボーナス（既定 0.30）
 #   burst_basis: 16分パターンのゲートの根拠（main / drums / main65）
 #   chord_gate_drop: 同時押しの強さゲートだけを下げる曲別調整（強弱が均一な曲用。既定 0）
+#   sustain_hi / sustain_lo: v6-1a の sustain_mode 判定の閾値の曲別上書き
+#     （sustain_hi: 主レイヤー melody/vocal かつフレーズ持続度がこれ以上で
+#     「持続的」。既定 0.50。sustain_lo: 持続度がこれ以下で「打撃的」。既定 0.30）
 SONGS = {
     # NK-S003 の収録曲。音源は src/game/assets/track0N.mp3（CD 側の MP4 から
     # 音声だけを MP3 192kbps で書き出したもの）。
@@ -146,6 +206,8 @@ HARD_CAP = 820  # hard の総ノーツ数の上限（安全弁。パターン＋
 NORMAL_CAP = 410  # normal の総ノーツ数の上限（8分の骨格を強さ順に間引く）
 EASY_CAP = 210  # easy の総ノーツ数の上限（拍位置のみを強さ順に間引く）
 FEVER_GAP_FILL_S = 2.9  # FEVER 区間でこの秒数を超える空白は、間引きで落ちた候補を戻して埋める
+DENSITY_FLOOR_RATIO = 0.92  # v6-1.1: 密度下限ガードの下限（候補プール比。thin 目標が最少レーン律速のときだけ発動）
+EIGHTH_BALANCE_W = 2.0  # v6-1.2: フィット時の8分位置だけのレーン分布均衡の重み（全体分布 6.0 の 1/3。normal プールの偏り対策。3.0 では track-b hard のレーン下限を割ったため 2.0）
 SNAP_WINDOW_MS = 38  # オンセットピークへ寄せる範囲（遠いピークは別のリズム事象なので寄せない）
 SNAP_MIN_GAP_MS = 100  # スナップ後に許す同一レーンの最小間隔
 LANE_MIN_SHARE = 0.18  # レーン分布の下限（単体テストでも検証）
@@ -463,6 +525,63 @@ def assign_layer_for(meta, pslots, is_chorus, prev_layer):
     return best, scores
 
 
+# ---- v6-1a: 持続度（V5-4 として併記されていた harm_rms の実用化） ----
+# 閾値は既定値。v6-1.2: SONGS メタデータの sustain_hi / sustain_lo で曲別に
+# 上書きできる（未指定の曲はこの値のままで挙動不変）
+SUSTAIN_HI = 0.50  # フレーズ持続度がこれ以上＋主レイヤー melody/vocal で「持続的」
+SUSTAIN_LO = 0.30  # フレーズ持続度がこれ以下なら主レイヤー不問で「打撃的」
+
+
+def phrase_sustain(pslots):
+    """フレーズの持続度（スロット sustain の平均。sustain は harm_rms を曲内
+    95パーセンタイルで割って 1.5 で頭打ちにした値なので、曲間の絶対比較ではなく
+    曲内での相対的な持続の物差し）。"""
+    if not pslots:
+        return 0.0
+    return float(np.mean([s.get("sustain", 0.0) for s in pslots]))
+
+
+# ---- v6-1b: 非サビ反復セクションのモチーフ再利用 ----
+MOTIF_SIM_MIN = 0.86  # コサイン類似度の絶対下限（これ未満は別フレーズとして扱う）
+MOTIF_SIM_REL = 0.92  # 曲内の非サビフレーズ間類似度の最大値に対する相対下限（両方満たす場合のみ再利用）
+MOTIF_MIN_BARS = 2  # v6-1.1: 再利用対象は2小節以上のフレーズ同士だけ（1小節組の誤検出防止）
+
+
+def phrase_signature(pslots):
+    """フレーズの類似判定用シグネチャ（長さ不変のベクトル）。
+
+    スロット順の3チャンネル（strength をフレーズ内最大で正規化したもの、
+    energy、F0 のフレーズ中央値からの相対コンター）を各24点にリサンプルして
+    並べる。フレーズの小節数が違っても比較できる。F0 が無いスロットは中央値で埋める。
+    """
+    if not pslots:
+        return np.zeros(72)
+    strength = np.array([s["strength"] for s in pslots], dtype=float)
+    strength = strength / (strength.max() or 1.0)
+    energy = np.array([s["energy"] for s in pslots], dtype=float)
+    f0 = np.array([s.get("f0", np.nan) for s in pslots], dtype=float)
+    valid = f0[~np.isnan(f0)]
+    med = float(np.median(valid)) if len(valid) else 60.0
+    f0 = np.where(np.isnan(f0), med, f0)
+    contour = np.clip((f0 - med) / 12.0, -1.0, 1.0)
+    x_old = np.linspace(0.0, 1.0, len(pslots))
+    x_new = np.linspace(0.0, 1.0, 24)
+    return np.concatenate(
+        [
+            np.interp(x_new, x_old, strength),
+            np.interp(x_new, x_old, energy) * 0.5,
+            np.interp(x_new, x_old, contour) * 0.5,
+        ]
+    )
+
+
+def _cosine(a, b):
+    na, nb = float(np.linalg.norm(a)), float(np.linalg.norm(b))
+    if na == 0.0 or nb == 0.0:
+        return 0.0
+    return float(np.dot(a, b) / (na * nb))
+
+
 def subdivision_positions(ext_beats):
     """拍列から作る16分細分位置（秒）の配列。ズレ検証用。"""
     pos = []
@@ -549,12 +668,15 @@ def segment_phrases(playable_bars, boundary_bars):
     return phrases
 
 
-def plan_phrase(rng, phrase, unit_energy, unit_gate, unit_fever, is_chorus):
+def plan_phrase(rng, phrase, unit_energy, unit_gate, unit_fever, is_chorus, sustain_mode=None):
     """フレーズ内の各半小節にパターン名を割り当てる計画を返す。
 
     unit_energy(unit) -> 0..1、unit_gate(unit, kind) -> bool（burst/jack を置ける強さか）、
     unit_fever(unit) -> bool（FEVER 区間のユニットか）。
     unit は (bar, half) のタプル。
+    sustain_mode（v6-1a）: フレーズの持続性。"sustained" は流れるパターン
+    （stair/wave）を厚くし jack・burst を抑え、"percussive" は jack を厚くし
+    burst も少し増やす。None は従来どおり。ゲート自体は変えない。
 
     FEVER 区間は密度を上げる（オーナー指示）: 計画エネルギーを +0.45 底上げして
     上の段に寄せ、16分パターン（burst）の確率も 0.42 → 0.75 に上げる。底上げは
@@ -572,10 +694,19 @@ def plan_phrase(rng, phrase, unit_energy, unit_gate, unit_fever, is_chorus):
         pe = min(1.0, e + 0.45) if fever else e
         r = rng.random()
         if pe < 0.28:
-            name = "sparse" if r < 0.45 else rng.choice(["wave", "stair"])
+            sparse_p = 0.45
+            if sustain_mode == "sustained":
+                sparse_p = 0.25  # 持続的な低エネルギー部は休ませすぎず流れを残す
+            elif sustain_mode == "percussive":
+                sparse_p = 0.55  # 打撃的な低エネルギー部は単発の間を広めに取る
+            name = "sparse" if r < sparse_p else rng.choice(["wave", "stair"])
         elif pe < 0.62:
             sparse_p = 0.03 if fever else 0.08
             jack_p = 0.065 if fever else 0.115
+            if sustain_mode == "sustained":
+                jack_p *= 0.4  # 持続音に縦連は合わないので絞る
+            elif sustain_mode == "percussive":
+                jack_p = min(0.30, jack_p * 2.0)  # 区切れたアタックは縦連で受ける
             if r < sparse_p:
                 name = "sparse"
             elif r < jack_p and unit_gate(unit, "jack"):
@@ -584,6 +715,10 @@ def plan_phrase(rng, phrase, unit_energy, unit_gate, unit_fever, is_chorus):
                 name = rng.choice(["stair", "wave", "alt", "cross", "wave", "stair"])
         else:
             burst_p = 0.75 if fever else 0.42
+            if sustain_mode == "sustained":
+                burst_p *= 0.9  # 持続的な高エネルギー部は16分連打を少しだけ抑えて流れで押す
+            elif sustain_mode == "percussive":
+                burst_p = min(0.85, burst_p + 0.15)
             if r < burst_p and unit_gate(unit, "burst"):
                 name = rng.choice(["trill", "roll", "wave16"])
             elif r < burst_p + 0.045 and unit_gate(unit, "jack"):
@@ -616,6 +751,10 @@ class Realizer:
         self.notes = []
         self.counts = [0, 0, 0, 0]
         self.head_counts = [0, 0, 0, 0]  # 単位の頭（rel=0）のノーツだけの分布。easy の偏り対策
+        # v6-1.2: 8分位置（sub 偶数）だけの分布。normal の候補プールは hard の
+        # 8分位置サブセットなので、全体と別に数えてフィットで均す
+        self.eighth_counts = [0, 0, 0, 0]
+        self.eighth_total = 0
         self.total = 0
         self.prev_lanes = []  # 直近のレーン列（末尾が最新）
         self.recent = []  # 直近のノーツの (16分グリッド位置, レーン)。両親指制約の罰金用
@@ -643,6 +782,8 @@ class Realizer:
             "beat": slot["beat"],
             "bar": slot["beat"] // 4,
             "strength": slot["strength"],
+            "sustain": slot.get("sustain", 0.0),  # v6-1a: 長押し候補の根拠（v5 曲のみ）
+            "f0": slot.get("f0", float("nan")),  # v6-2: フリックの音高跳躍判定の根拠（v5 曲のみ）
             "pitch_lane": slot["pitch_lane"],
             "fever": slot["fever"],
             "energy": slot["energy"],
@@ -652,6 +793,9 @@ class Realizer:
         self.counts[lane] += 1
         if unit_rel == 0:
             self.head_counts[lane] += 1
+        if slot["sub"] % 2 == 0:
+            self.eighth_counts[lane] += 1
+            self.eighth_total += 1
         self.total += 1
         self.prev_lanes.append(lane)
         self.recent.append((slot["beat"] * 4 + slot["sub"], lane))
@@ -732,10 +876,17 @@ class Realizer:
             delta = abs(lanes[0] - self.prev_lanes[-1])
             cost += {0: 0.35, 1: 0.0, 2: 0.5, 3: 1.1}[delta]
         for i, lane in enumerate(lanes):
-            cost += 2.0 * (self.counts[lane] / max(1, self.total))
+            # v6-1: パターン分岐で型の偏りが変わってもレーン分布の検証範囲
+            # （18〜32%）に収まるよう、分布の均衡コストを v5 の 2.0/1.6 から強化
+            cost += 6.0 * (self.counts[lane] / max(1, self.total))
+            if subs[i] % 2 == 0:
+                # v6-1.2: 8分位置のノーツには8分位置だけの分布も均す。
+                # normal プール（hard の8分位置サブセット）の最少レーンが
+                # 薄くなると thin の律速で normal 全体が削れるため
+                cost += EIGHTH_BALANCE_W * (self.eighth_counts[lane] / max(1, self.eighth_total))
             if i == 0:
                 # 単位の頭は easy にも残るので、その分布も均す
-                cost += 1.6 * (self.head_counts[lane] / max(1, sum(self.head_counts)))
+                cost += 4.8 * (self.head_counts[lane] / max(1, sum(self.head_counts)))
         cost += 0.05 * sum(abs(l - p) for l, p in zip(lanes, pitches))  # 音高は参考程度
         if f0s:
             # v5（V5-3）: 音高コンターとレーンの動きの一致。主レイヤーが
@@ -797,9 +948,12 @@ class Realizer:
         best_lane, best_cost = 0, None
         grid = slot["beat"] * 4 + slot["sub"]
         for lane in range(4):
+            # アンカーは単位の頭（sub==0）＝必ず8分位置なので、8分位置だけの
+            # 分布均衡（v6-1.2）も全体分布と同じ重みで効かせる
             cost = (
-                2.0 * (self.counts[lane] / max(1, self.total))
-                + 1.6 * (self.head_counts[lane] / max(1, sum(self.head_counts)))
+                6.0 * (self.counts[lane] / max(1, self.total))
+                + EIGHTH_BALANCE_W * (self.eighth_counts[lane] / max(1, self.eighth_total))
+                + 4.8 * (self.head_counts[lane] / max(1, sum(self.head_counts)))
                 + 0.06 * abs(lane - slot["pitch_lane"])
                 + self.side_penalty([lane], [grid])
             )
@@ -973,8 +1127,9 @@ def validate(name, charts, raw, duration_ms):
             run = seq[i0 : i1 + 1]
             assert run_is_allowed(diff, run), f"{name}/{diff}: 同一レーン{len(run)}連続（{run[0]['time_ms']}ms〜）"
         # 長押し: 尾の余裕・帯の中の同一レーン・同士の重なり
-        holds = [n for n in notes if len(n) > 2]
-        for t, lane, hold in holds:
+        # v6-2: フリック [t, lane, 0, "flick"] は長押しではないので除外する
+        holds = [n for n in notes if len(n) > 2 and n[2]]
+        for t, lane, hold in (h[:3] for h in holds):
             tail = t + hold
             assert hold >= 350, f"{name}/{diff}: 長押しが短すぎる {hold}ms"
             assert tail <= duration_ms - 500, f"{name}/{diff}: 長押しの尾が曲の終わりに近すぎる"
@@ -1056,6 +1211,9 @@ def process_song(song_id, meta, y, sr):
     # （ゲート・フロアが参照する実効 strength 用）。eff はフレーズの主レイヤーが
     # 決まるたびに差し替える（初期値は全帯域 strength）。
     v5 = bool(meta.get("chart_v5"))
+    # v6-1.2: sustain_mode 判定の閾値（曲別上書き口。未指定は従来の絶対定数）
+    sustain_hi = float(meta.get("sustain_hi", SUSTAIN_HI))
+    sustain_lo = float(meta.get("sustain_lo", SUSTAIN_LO))
     if v5:
         feat = compute_layer_features(y, sr, [s["time"] for s in playable])
         for layer in ("drums", "melody", "vocal"):
@@ -1066,10 +1224,14 @@ def process_song(song_id, meta, y, sr):
             for i, s in enumerate(playable):
                 s.setdefault("lay_n", {})[layer] = float(lay_n[i])
                 s.setdefault("eff_by_layer", {})[layer] = float(eff_map[i])
+        # v6-1a: 持続度 sustain = harm_rms を曲内95パーセンタイルで正規化した値
+        harm = np.asarray(feat["harm_rms"], dtype=float)
+        harm_p95 = float(np.percentile(harm, 95)) or 1.0
         for i, s in enumerate(playable):
             s["f0"] = float(feat["f0"][i])
             s["voiced"] = float(feat["voiced"][i])
             s["eff"] = s["strength"]
+            s["sustain"] = float(min(1.5, harm[i] / harm_p95))
 
     def assign_layer(pslots, is_chorus, prev_layer):
         return assign_layer_for(meta, pslots, is_chorus, prev_layer)
@@ -1201,10 +1363,41 @@ def process_song(song_id, meta, y, sr):
             for gk in range(gi, gj):
                 chorus_group_layer[gk] = g_layer
             gi = gj
+    # v6-1b: 非サビフレーズ同士の類似度を先に測り、モチーフ再利用の閾値を
+    # 曲内相対で決める（絶対下限と、曲内の最大類似度に対する相対下限の両方を
+    # 満たす組だけを再利用対象にする。無関係なフレーズを誤って固定しないため）
+    pair_sims = {}
+    motif_sim_thr = 2.0  # 到達不能値（v5 でない曲・組が無い曲では再利用しない）
+    if v5:
+        sigs = [
+            None
+            if phrase_is_chorus[i] or len(p) < MOTIF_MIN_BARS
+            else phrase_signature(phrase_slots(p))
+            for i, p in enumerate(phrases)
+        ]
+        sim_vals = []
+        for i in range(len(phrases)):
+            if sigs[i] is None:
+                continue
+            for j in range(i):
+                if sigs[j] is None:
+                    continue
+                s = _cosine(sigs[j], sigs[i])
+                pair_sims[(j, i)] = s
+                sim_vals.append(s)
+        if sim_vals:
+            motif_sim_thr = max(MOTIF_SIM_MIN, MOTIF_SIM_REL * max(sim_vals))
+    motif_owner = {}  # 初出フレーズ番号 -> {"plan", "count", "bars"}
+    motif_report = []
+
     prev_layer = None
     phrase_layers = []
     for pi, phrase in enumerate(phrases):
         is_chorus = phrase_is_chorus[pi]
+        motif_mirror = False  # v6-1b: 非サビモチーフ再利用（2回目）の鏡像フラグ
+        motif_vary = False  # v6-1b: 非サビモチーフ再利用（3回目以降）の末尾変化フラグ
+        sustain_mode = None  # v6-1a
+        sus_val = None
         # v5（V5-2）: フレーズの主レイヤーを先に決め、その strength を
         # スロットの eff に差し替えてから計画・実体化する（フレーズ途中では変えない）
         layer = None
@@ -1225,12 +1418,20 @@ def process_song(song_id, meta, y, sr):
             # mixed のフレーズはヒステリシスの基準（prev_layer）を更新しない
             for s in pslots:
                 s["eff"] = s["strength"] if layer == "mixed" else s["eff_by_layer"][layer]
+            # v6-1a: フレーズの持続性モードを主レイヤーと持続度で決める
+            sus_val = phrase_sustain(pslots)
+            if layer in ("melody", "vocal") and sus_val >= sustain_hi:
+                sustain_mode = "sustained"
+            elif layer == "drums" or sus_val <= sustain_lo:
+                sustain_mode = "percussive"
             phrase_layers.append(
                 {
                     "bars": [phrase[0], phrase[-1]] if phrase else [],
                     "layer": layer,
                     "chorus": is_chorus,
                     "scores": scores,
+                    "sustain": round(sus_val, 3),
+                    "sustainMode": sustain_mode,
                 }
             )
         gate = (
@@ -1244,16 +1445,49 @@ def process_song(song_id, meta, y, sr):
                 chorus_first_bars.add(phrase[0])
             units = [(bar, half) for bar in phrase for half in (0, 1)]
             if motif_plan is None:
-                units, plan = plan_phrase(rng, phrase, unit_energy, gate, unit_fever, True)
+                units, plan = plan_phrase(rng, phrase, unit_energy, gate, unit_fever, True, sustain_mode)
                 motif_plan = plan
             else:
                 plan = [motif_plan[i % len(motif_plan)] for i in range(len(units))]
         else:
-            units, plan = plan_phrase(rng, phrase, unit_energy, gate, unit_fever, False)
-        mirror = is_chorus and chorus_count >= 2
+            units = [(bar, half) for bar in phrase for half in (0, 1)]
+            # v6-1b: 類似した非サビフレーズの再登場なら初出の計画（モチーフ）を
+            # 再利用する。2回目は鏡像、3回目以降は末尾変化（サビの扱いに倣う）。
+            # 再利用しなかったフレーズは初出として登録する。
+            reuse = None
+            if v5:
+                for (j, i), sim in sorted(pair_sims.items()):
+                    if i == pi and sim >= motif_sim_thr and j in motif_owner:
+                        reuse = (motif_owner[j], sim)
+                        break
+            if reuse is not None:
+                entry, sim = reuse
+                entry["count"] += 1
+                plan = [entry["plan"][k % len(entry["plan"])] for k in range(len(units))]
+                motif_mirror = entry["count"] == 2
+                motif_vary = entry["count"] >= 3
+                motif_report.append(
+                    {
+                        "bars": [phrase[0], phrase[-1]] if phrase else [],
+                        "sourceBars": entry["bars"],
+                        "count": entry["count"],
+                        "sim": round(sim, 3),
+                    }
+                )
+            else:
+                _units, plan = plan_phrase(
+                    rng, phrase, unit_energy, gate, unit_fever, False, sustain_mode
+                )
+                if v5 and len(phrase) >= MOTIF_MIN_BARS:
+                    motif_owner[pi] = {
+                        "plan": list(plan),
+                        "count": 1,
+                        "bars": [phrase[0], phrase[-1]] if phrase else [],
+                    }
+        mirror = (is_chorus and chorus_count >= 2) or motif_mirror
         contour = v5 and layer in ("melody", "vocal")
         for ui, (unit, name) in enumerate(zip(units, plan)):
-            if is_chorus and chorus_count >= 3 and ui == len(units) - 1:
+            if ((is_chorus and chorus_count >= 3) or motif_vary) and ui == len(units) - 1:
                 name = "wave16" if gate(unit, "burst") else "wave"
             unit_plan_count[name] = unit_plan_count.get(name, 0) + 1
             realizer.realize_unit(
@@ -1316,12 +1550,23 @@ def process_song(song_id, meta, y, sr):
         and n["time_ms"] not in chord_times
         and n["strength"] >= thr[50]
     ]
-    candidates.sort(key=lambda n: (-(n["strength"] * (1.25 if n["fever"] else 1.0)), n["time_ms"]))
+    # v6-1a: 長押しの優先度にも持続度を根拠として使う（持続的な音ほど長押しに
+    # 向く。打撃的な場所の候補は相対的に後ろへ回り、結果として抑えられる）
+    candidates.sort(
+        key=lambda n: (
+            -(n["strength"] * (1.25 if n["fever"] else 1.0) * (1.0 + 0.6 * n.get("sustain", 0.0))),
+            n["time_ms"],
+        )
+    )
     accepted = []
     removed_ids = set()
     for n in candidates:
         if len(accepted) >= HOLD_TARGET + 2:
             break
+        # v6-1a: 持続成分がほぼ無い場所（打撃音の頭）には長押しを置かない
+        # （FEVER 区間は従来どおり許可する）
+        if v5 and not n["fever"] and n.get("sustain", 0.0) < 0.12:
+            continue
         t = n["time_ms"] / 1000
         i = bisect.bisect_right(strong_times, t + 0.3)
         if i >= len(strong_times):
@@ -1395,6 +1640,152 @@ def process_song(song_id, meta, y, sr):
             drop.add(n["id"])
         notes = [n for n in notes if n["id"] not in drop]
 
+    # v6-2: フリック配置（曲別メタデータ flick: True の曲だけ。既定 OFF。
+    # テンプレート側ランタイムがフリック未対応のため、ON は対応済み作品だけ）
+    # 置き場所は音楽的な「決め」だけ（割合ありきの変換はしない）:
+    #   サビ内: 第1サビで決めた相対位置（拍オフセット）を全サビへ適用する。
+    #     位置の根拠は サビ入り／フレーズ頭／強拍アクセント（sub==0 かつ
+    #     strength 上位）／F0 の大きな跳躍（5半音以上）／フレーズ末。
+    #   サビ外: フレーズ頭の強アクセント／クライマックス頭／サビ直前の一打のみ。
+    # 適格性（単独ノーツ・長押しでない・同レーン前後 250ms 以上）と難易度別の
+    # 最小間隔は NK-S006 v1.4.2 の実績どおり。難易度は間隔の厳しい順に
+    # easy ⊂ normal ⊂ hard の入れ子で割り当てる（rank 0=easyから / 1=normalから /
+    # 2=hardのみ）。
+    flick_report = []
+    if meta.get("flick"):
+        FLICK_GAP_MS = {"easy": 4500, "normal": 2400, "hard": 1400}
+        FLICK_FLOOR_MS = 1200
+        time_count = {}
+        for n in notes:
+            time_count[n["time_ms"]] = time_count.get(n["time_ms"], 0) + 1
+        lane_times = {}
+        for n in notes:
+            lane_times.setdefault(n["lane"], []).append(n["time_ms"])
+        for v in lane_times.values():
+            v.sort()
+
+        def flick_eligible(n):
+            if n["hold_ms"] > 0 or time_count[n["time_ms"]] > 1:
+                return False
+            ts = lane_times[n["lane"]]
+            k = bisect.bisect_left(ts, n["time_ms"])
+            if k > 0 and n["time_ms"] - ts[k - 1] < 250:
+                return False
+            if k < len(ts) - 1 and ts[k + 1] - n["time_ms"] < 250:
+                return False
+            return True
+
+        def seg_idx(t_ms):
+            for i, (a, b) in enumerate(fever):
+                if a * 1000 <= t_ms < b * 1000:
+                    return i
+            return -1
+
+        phrase_head_bars = {p[0] for p in phrases if p}
+        selected = {}  # id -> (note, reason)
+
+        # サビ内: 第1サビで相対位置（先頭拍からの拍オフセット＋sub）を決める
+        seg_notes = {}
+        for n in notes:
+            si = seg_idx(n["time_ms"])
+            if si >= 0:
+                seg_notes.setdefault(si, []).append(n)
+        if seg_notes.get(0):
+            s0 = sorted(seg_notes[0], key=lambda n: (n["time_ms"], n["lane"]))
+            start_beat0 = min(n["beat"] for n in s0)
+            # フレーズ末の決め判定用: 第1サビにかかるフレーズごとの最終ノーツ
+            phrase_of_bar = {}
+            for p in phrases:
+                for b in p:
+                    phrase_of_bar[b] = p
+            last_note_id = {}
+            for n in s0:
+                p = phrase_of_bar.get(n["bar"])
+                if p is not None:
+                    k = id(p)
+                    if k not in last_note_id or n["time_ms"] > last_note_id[k][0]:
+                        last_note_id[k] = (n["time_ms"], n["id"])
+            last_ids = {v[1] for v in last_note_id.values()}
+            offsets = {}
+            prev = None
+            for n in s0:
+                reason = None
+                if prev is None:
+                    reason = "chorus-entry"
+                elif n["bar"] in phrase_head_bars and n["sub"] == 0:
+                    reason = "phrase-head"
+                elif n["sub"] == 0 and n["strength"] >= thr[84]:
+                    reason = "accent"
+                elif (
+                    n["sub"] == 0
+                    and prev is not None
+                    and not np.isnan(n["f0"])
+                    and not np.isnan(prev["f0"])
+                    and abs(n["f0"] - prev["f0"]) >= 5.0
+                ):
+                    reason = "f0-jump"
+                elif n["id"] in last_ids and n["strength"] >= thr[65]:
+                    reason = "phrase-final"
+                if reason is not None and flick_eligible(n):
+                    offsets.setdefault((n["beat"] - start_beat0, n["sub"]), reason)
+                prev = n
+            # 全サビへ同じ相対位置で適用（レーンは各サビの実体化どおり＝モチーフ連動）
+            for si, lst in seg_notes.items():
+                sb = min(n["beat"] for n in lst)
+                for n in lst:
+                    key = (n["beat"] - sb, n["sub"])
+                    if key in offsets and flick_eligible(n):
+                        selected[n["id"]] = (n, offsets[key])
+        # サビ外の決め: フレーズ頭の強アクセント／クライマックス頭／サビ直前
+        for n in sorted(notes, key=lambda n: (n["time_ms"], n["lane"])):
+            if seg_idx(n["time_ms"]) >= 0 or n["id"] in selected:
+                continue
+            reason = None
+            if n["bar"] in phrase_head_bars and n["sub"] == 0 and n["strength"] >= thr[93]:
+                reason = "accent"
+            elif n["bar"] in climax_bars and n["sub"] == 0 and n["strength"] >= thr[84]:
+                reason = "accent"
+            else:
+                # サビ直前の一打: そのノーツの直後（次のノーツまで）に FEVER が始まる
+                nxt = min((m["time_ms"] for m in notes if m["time_ms"] > n["time_ms"]), default=None)
+                if (
+                    n["strength"] >= thr[75]
+                    and any(a * 1000 >= n["time_ms"] and (nxt is None or a * 1000 <= nxt) for a, _b in fever)
+                ):
+                    reason = "pre-chorus"
+            if reason is not None and flick_eligible(n):
+                selected[n["id"]] = (n, reason)
+        # 難易度別の最小間隔で入れ子に絞る（時刻順の貪欲。easy→normal→hard の順に
+        # 厳しい間隔で間引くので、部分集合関係が保たれる）
+        chosen = sorted(selected.values(), key=lambda nr: (nr[0]["time_ms"], nr[0]["lane"]))
+
+        def gap_filter(items, gap_ms):
+            out, last = [], None
+            for item in items:
+                t = item[0]["time_ms"]
+                if last is None or t - last >= max(gap_ms, FLICK_FLOOR_MS):
+                    out.append(item)
+                    last = t
+            return out
+
+        hard_sel = gap_filter(chosen, FLICK_GAP_MS["hard"])
+        normal_sel = gap_filter(hard_sel, FLICK_GAP_MS["normal"])
+        easy_sel = gap_filter(normal_sel, FLICK_GAP_MS["easy"])
+        rank_of = {}
+        for item in hard_sel:
+            rank_of[item[0]["id"]] = 2
+        for item in normal_sel:
+            rank_of[item[0]["id"]] = 1
+        for item in easy_sel:
+            rank_of[item[0]["id"]] = 0
+        for nid, rank in rank_of.items():
+            n, reason = selected[nid]
+            n["flick_rank"] = rank
+            flick_report.append(
+                {"time": n["time_ms"], "lane": n["lane"], "reason": reason, "rank": rank}
+            )
+        flick_report.sort(key=lambda r: (r["time"], r["lane"]))
+
     # 難易度への導出（入れ子）
     notes_by_id = {n["id"]: n for n in notes}
     hard_ids = {n["id"] for n in notes}
@@ -1459,7 +1850,7 @@ def process_song(song_id, meta, y, sr):
                         lane_kept[l] += 1
                         progress = True
                         break
-        return {n["id"] for n in kept}
+        return {n["id"] for n in kept}, total_target
 
     def fill_fever_gaps(ids, pool, cap, min_gap):
         """FEVER 区間の空白が FEVER_GAP_FILL_S を超えたら、落ちた候補を戻す。
@@ -1536,12 +1927,115 @@ def process_song(song_id, meta, y, sr):
                 pool.remove(chosen)
         return ids
 
+    def fill_density_floor(ids, pool, cap, min_gap, floor_count):
+        """密度下限ガード（v6-1.1）: 保持数が floor_count 未満なら候補を戻す。
+
+        thin の目標総数は最少レーンの候補数から決まるため、1レーンの候補が
+        減っただけで難易度全体が大きく割り込むことがある（umi normal の
+        −22% の実例）。プール（間引き前の候補集合）に対する保持率で下限を
+        決め、割り込んだ分だけ、落ちた候補を強さ順（FEVER は thin と同じ
+        ×1.2 優先）に戻す。戻すのは pool の中だけ＝呼び出し側で上位難易度の
+        確定集合と積を取って渡すので入れ子は保たれる。安全条件は
+        fill_fever_gaps と同じ物差し: 最小間隔、戻した後のレーン割合が
+        検証範囲（0.18〜0.32）の内側、同一レーン3連を作らないこと。
+        戻した後に修復が落とす分は呼び出し側の再修復ループで扱う。
+        """
+        ids = set(ids)
+        if len(ids) >= floor_count:
+            return ids
+        rest = sorted(
+            (notes_by_id[i] for i in pool if i not in ids),
+            key=lambda n: -(n["strength"] * (1.2 if n["fever"] else 1.0)),
+        )
+        for n in rest:
+            if len(ids) >= floor_count or len(ids) >= cap:
+                break
+            kept_notes = sorted((notes_by_id[i] for i in ids), key=lambda k: (k["time_ms"], k["lane"]))
+            kept = [k["time_ms"] for k in kept_notes]
+            t = n["time_ms"]
+            if any(t != k and abs(t - k) < min_gap for k in kept):
+                continue
+            total = len(ids)
+            lane_counts = [sum(1 for k in kept_notes if k["lane"] == l) for l in range(4)]
+            shares = [
+                (lane_counts[l] + (1 if l == n["lane"] else 0)) / (total + 1) for l in range(4)
+            ]
+            if max(shares) > LANE_MAX_SHARE or min(shares) < LANE_MIN_SHARE:
+                continue
+            seq = kept_notes
+            idx = bisect.bisect_left([(k["time_ms"], k["lane"]) for k in seq], (t, n["lane"]))
+            p1 = seq[idx - 1] if idx >= 1 else None
+            p2 = seq[idx - 2] if idx >= 2 else None
+            q1 = seq[idx] if idx < len(seq) else None
+            q2 = seq[idx + 1] if idx + 1 < len(seq) else None
+            L = n["lane"]
+            if (
+                (p1 is not None and p2 is not None and p1["lane"] == L == p2["lane"])
+                or (q1 is not None and q2 is not None and q1["lane"] == L == q2["lane"])
+                or (p1 is not None and q1 is not None and p1["lane"] == L == q1["lane"])
+            ):
+                continue
+            # 両親指制約 C3a／C3b（check-two-thumb.py と同じ定義）を挿入位置の
+            # 周辺でも先回りで避ける。戻した直後の修復で落とされ直すのを防ぐため
+            gseq = sorted(
+                [(k["beat"] * 4 + k["sub"], k["lane"]) for k in kept_notes]
+                + [(n["beat"] * 4 + n["sub"], L)]
+            )
+            gi = gseq.index((n["beat"] * 4 + n["sub"], L))
+            side = L // 2
+            run = 1
+            k = gi
+            while (
+                k - 1 >= 0
+                and gseq[k - 1][1] // 2 == side
+                and gseq[k][0] - gseq[k - 1][0] <= 1
+            ):
+                run += 1
+                k -= 1
+            k = gi
+            while (
+                k + 1 < len(gseq)
+                and gseq[k + 1][1] // 2 == side
+                and gseq[k + 1][0] - gseq[k][0] <= 1
+            ):
+                run += 1
+                k += 1
+            if run >= 3:
+                continue
+            bad_side = False
+            for s0 in range(max(0, gi - 4), gi + 1):
+                lanes_seen = set()
+                prev_g = None
+                prev_lane = None
+                length = 0
+                for g2, l2 in gseq[s0 : gi + 5]:
+                    if l2 // 2 != side:
+                        break
+                    if prev_g is not None and g2 - prev_g > 2:
+                        break
+                    if prev_lane is not None and l2 == prev_lane:
+                        break
+                    if l2 not in lanes_seen and len(lanes_seen) >= 2:
+                        break
+                    lanes_seen.add(l2)
+                    prev_g = g2
+                    prev_lane = l2
+                    length += 1
+                if length >= 5 and len(lanes_seen) == 2:
+                    bad_side = True
+                    break
+            if bad_side:
+                continue
+            ids.add(n["id"])
+        return ids
+
     normal_pool = set(normal_ids)
-    normal_ids = thin(normal_ids, NORMAL_CAP, 150)
-    easy_ids = {i for i in normal_ids if notes_by_id[i]["sub"] == 0 and notes_by_id[i]["kind"] != "chord"}
+    normal_ids, normal_target = thin(normal_ids, NORMAL_CAP, 150)
+    easy_pre_thin = {i for i in normal_ids if notes_by_id[i]["sub"] == 0 and notes_by_id[i]["kind"] != "chord"}
+    easy_ids = set(easy_pre_thin)
     # easy は拍位置のみで候補が少なく、サビが16分中心になるとサビの取り分が
     # 構造的に減るため、FEVER 優先の重みを normal より強める（2026-11-20）
-    easy_ids = thin(easy_ids, EASY_CAP, 260, fever_w=1.6)
+    easy_ids, easy_target = thin(easy_ids, EASY_CAP, 260, fever_w=1.6)
     id_sets = {"hard": hard_ids, "normal": normal_ids, "easy": easy_ids}
     # 同一レーン修復と両親指修復は、片方の「落とす」が他方の違反（連の接続）を
     # 作ることがあるので、どちらも動かなくなるまで交互に回す（落とすだけなので収束する）
@@ -1568,6 +2062,52 @@ def process_song(song_id, meta, y, sr):
     }
     id_sets["easy"] = fill_fever_gaps(id_sets["easy"], easy_pool, EASY_CAP, 260)
 
+    # v6-1.1 密度下限ガード: thin の目標が cap でなく最少レーン由来で決まった
+    # 難易度だけを対象に、候補プールの DENSITY_FLOOR_RATIO 倍を下限として、
+    # 割り込んだ分は落ちた候補を強さ順に戻す。戻すと修復対象が増えるため、
+    # 戻し→修復を下限到達か変化なしまで繰り返す（落とすだけの修復と安全条件
+    # 付きの戻しなので、数回で収束する）。cap 律速の難易度は下限 0 ＝無発動。
+    import math
+
+    normal_floor = (
+        min(NORMAL_CAP, math.ceil(DENSITY_FLOOR_RATIO * len(normal_pool)))
+        if normal_target < NORMAL_CAP
+        else 0
+    )
+    easy_floor = (
+        min(EASY_CAP, math.ceil(DENSITY_FLOOR_RATIO * len(easy_pre_thin)))
+        if easy_target < EASY_CAP
+        else 0
+    )
+    for _ in range(3):
+        if len(id_sets["normal"]) >= normal_floor and len(id_sets["easy"]) >= easy_floor:
+            break
+        before = {d: len(s) for d, s in id_sets.items()}
+        id_sets["normal"] = fill_density_floor(
+            id_sets["normal"], normal_pool & id_sets["hard"], NORMAL_CAP, 150, normal_floor
+        )
+        id_sets["easy"] = fill_density_floor(
+            id_sets["easy"],
+            {
+                i
+                for i in id_sets["normal"]
+                if notes_by_id[i]["sub"] in (0, 2) and notes_by_id[i]["kind"] != "chord"
+            },
+            EASY_CAP,
+            260,
+            easy_floor,
+        )
+        if all(len(id_sets[d]) == before[d] for d in before):
+            break
+        for _ in range(50):
+            before_r = {d: len(s) for d, s in id_sets.items()}
+            id_sets = repair_runs(id_sets, notes_by_id)
+            id_sets = repair_side_runs(id_sets, notes_by_id, chord_ids)
+            if all(len(id_sets[d]) == before_r[d] for d in before_r):
+                break
+        else:
+            raise AssertionError(f"{song_id}: 密度下限ガード後の修復が収束しない")
+
     def final_notes(diff, ids):
         seq = sorted((notes_by_id[i] for i in ids), key=lambda n: (n["time_ms"], n["lane"]))
         out = []
@@ -1590,28 +2130,45 @@ def process_song(song_id, meta, y, sr):
     finals = {d: final_notes(d, id_sets[d]) for d in ("easy", "normal", "hard")}
     raw = {d: sorted(finals[d], key=lambda o: (o["time_ms"], o["lane"])) for d in finals}
 
-    def to_tuples(final):
-        return [
-            [o["time_ms"], o["lane"], o["hold_ms"]] if o["hold_ms"] > 0 else [o["time_ms"], o["lane"]]
-            for o in final
-        ]
+    def to_tuples(diff, final):
+        # v6-2: フリックは NK-S006 と同じ [time, lane, 0, "flick"] 形式で出す
+        rank_max = {"easy": 0, "normal": 1, "hard": 2}[diff]
+        out = []
+        for o in final:
+            fr = o["src"].get("flick_rank")
+            if fr is not None and fr <= rank_max and o["hold_ms"] == 0:
+                out.append([o["time_ms"], o["lane"], 0, "flick"])
+            elif o["hold_ms"] > 0:
+                out.append([o["time_ms"], o["lane"], o["hold_ms"]])
+            else:
+                out.append([o["time_ms"], o["lane"]])
+        return out
 
-    charts = {d: to_tuples(finals[d]) for d in finals}
+    charts = {d: to_tuples(d, finals[d]) for d in finals}
     counts = validate(song_id, charts, raw, duration_ms)
     subdiv = subdivision_positions(ext_beats)
     drift = drift_stats(charts, subdiv, duration_ms)
 
-    def diff_report(final):
+    def diff_report(diff, final):
         by_time = {}
         for o in final:
             by_time[o["time_ms"]] = by_time.get(o["time_ms"], 0) + 1
         holds = [o for o in final if o["hold_ms"] > 0]
+        rank_max = {"easy": 0, "normal": 1, "hard": 2}[diff]
+        flicks = [
+            o
+            for o in final
+            if o["hold_ms"] == 0
+            and o["src"].get("flick_rank") is not None
+            and o["src"]["flick_rank"] <= rank_max
+        ]
         return {
             "total": len(final),
-            "taps": len(final) - len(holds),
+            "taps": len(final) - len(holds) - len(flicks),
             "chordPairs": sum(1 for v in by_time.values() if v == 2),
             "holds": len(holds),
             "holdSeconds": round(sum(o["hold_ms"] for o in holds) / 1000, 1),
+            "flicks": len(flicks),
         }
 
     pattern_notes = {}
@@ -1629,7 +2186,7 @@ def process_song(song_id, meta, y, sr):
     rep = {
         "bpm": int(round(bpm)),
         "counts": counts,
-        "diffs": {d: diff_report(finals[d]) for d in finals},
+        "diffs": {d: diff_report(d, finals[d]) for d in finals},
         "lanes": {d: [sum(1 for n in charts[d] if n[1] == l) for l in range(4)] for d in charts},
         "snapped": n_snapped,
         "droppedAfterSnap": n_dropped,
@@ -1639,6 +2196,9 @@ def process_song(song_id, meta, y, sr):
         "fever": fever,
         "v5": v5,
         "layers": phrase_layers,
+        "motifReuse": motif_report,
+        "motifSimThr": round(motif_sim_thr, 3) if v5 else None,
+        "flickPositions": flick_report,
     }
     print(f"{song_id}: BPM={bpm:.2f} -> {int(round(bpm))} counts={counts}")
     print(f"  diffs={json.dumps(rep['diffs'], ensure_ascii=False)} lanes={rep['lanes']}")
@@ -1646,6 +2206,7 @@ def process_song(song_id, meta, y, sr):
     print(f"  snapped={n_snapped} droppedAfterSnap={n_dropped} drift={json.dumps(drift, ensure_ascii=False)}")
     if v5:
         print(f"  layers={json.dumps(phrase_layers, ensure_ascii=False)}")
+        print(f"  motifReuse={json.dumps(motif_report, ensure_ascii=False)} thr={motif_sim_thr:.3f}")
     return song_json, rep
 
 
