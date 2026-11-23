@@ -6,7 +6,10 @@ import { VitePWA } from 'vite-plugin-pwa';
 const { version, name: appId } = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8')) as { version: string; name: string };
 
 // アプリ名・色はここと index.html の2か所だけ。新しいアプリを作るときに書き換える。
-const APP_NAME = '京葉線の午後 ― デジタルシングルCD';
+// APP_NAME はホーム画面に出る名前（manifest の name／short_name）なので、作品名そのものにする。
+// index.html の <title> と apple-mobile-web-app-title は「APP_NAME ― 形式名」の形でそろえる
+// （scripts/content-checks.mjs の app-name／manifest-name 検査が食い違いを止める）。
+const APP_NAME = '京葉線の午後';
 const THEME_COLOR = '#131a2c';
 const BACKGROUND_COLOR = '#131a2c';
 // 音源の実行時キャッシュ名。src/download.ts（初回一括ダウンロード）も同じ名前を使う（define で埋め込む）。
@@ -35,7 +38,7 @@ export default defineConfig({
       includeAssets: ['icons/apple-touch-icon.png', 'icons/icon-192.png'],
       manifest: {
         name: APP_NAME,
-        short_name: '京葉線の午後',
+        short_name: APP_NAME,
         description: '京葉線の午後と千葉の海を歌う2曲を収めたデジタルシングルCD『京葉線の午後』',
         lang: 'ja',
         display: 'standalone',

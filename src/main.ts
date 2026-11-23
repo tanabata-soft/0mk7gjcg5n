@@ -14,7 +14,7 @@ import {
 } from './logic';
 import { exposeTestApi, setData, setupDebug } from './debug';
 import { setupInstallGuide } from './install';
-import { setupUpdateBanner } from './pwa';
+import { requestPersistentStorage, setupUpdateBanner } from './pwa';
 import { downloadAllAudio } from './download';
 import { enterGameMode, exitGameMode } from './game/game-main';
 
@@ -599,6 +599,8 @@ exposeTestApi({
   },
 });
 setupUpdateBanner($('#update-banner'), $('#update-button'), $('#update-later'));
+// 音源キャッシュがブラウザの容量整理で消えないよう、起動時に永続化を要求しておく
+void requestPersistentStorage();
 // 初回一括ダウンロード（全音源を端末に入れる）。最初の表示が落ち着いてから裏で始める。
 {
   const dlBanner = $('#dl-banner');
@@ -612,6 +614,8 @@ setupUpdateBanner($('#update-banner'), $('#update-button'), $('#update-later'));
       dlLabel.textContent = `ダウンロード中… ${done}/${total}曲`;
     }).then((result) => {
       if (result === 'complete') {
+        // 全音源が入った時点で改めて永続化を要求する（この時点が一番通りやすい）
+        void requestPersistentStorage();
         dlLabel.textContent = 'ダウンロードが終わりました';
         window.setTimeout(() => {
           dlBanner.hidden = true;

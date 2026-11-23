@@ -31,3 +31,19 @@ export function setupUpdateBanner(banner: HTMLElement, button: HTMLElement, late
     banner.hidden = true;
   });
 }
+
+/**
+ * ストレージの永続化リクエスト。音源キャッシュがブラウザの容量整理で
+ * 消えてしまわないよう、対応環境では永続化を要求する（ベストエフォート）。
+ * すでに永続化済みなら何もしない。失敗してもアプリの動作には影響しない。
+ */
+export async function requestPersistentStorage(): Promise<void> {
+  try {
+    const storage = navigator.storage;
+    if (!storage?.persist || !storage.persisted) return;
+    if (await storage.persisted()) return;
+    await storage.persist();
+  } catch {
+    // 対応していない環境・失敗時はそのまま（永続化できなくても今の版は動く）
+  }
+}

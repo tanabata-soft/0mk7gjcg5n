@@ -53,8 +53,38 @@ v6-1 の変更点:
   強アクセント／クライマックス頭／サビ直前の一打だけに絞る。適格性と難易度別
   最小間隔（easy 4500ms / normal 2400ms / hard 1400ms、下限 1200ms）は
   NK-S006 の実績どおり。出力形式は NK-S006 と同じ [time, lane, 0, "flick"]。
-  注意: テンプレート側ランタイム（src/game）は現時点でフリック未対応のため、
-  既定 OFF。ON にするのはランタイム対応済みの作品側だけにすること。
+  標準化改訂（テンプレート v1.7.0、NK-S006 試作のオーナー暫定OKを受けて）:
+  サビ内位置の伝播を、FEVER 開始点からの絶対拍オフセットから「サビ内の
+  フレーズ構造上の位置（サビ内フレーズ順＋フレーズ先頭拍からのオフセット）」
+  へ変更した。絶対オフセット方式は、サビの長さや入り拍が違うと位置がずれる
+  ／落ちる欠陥が NK-S003 トライアルで実証された（一致 yoru 4/4・keiyo 3/5・
+  umi 1/9）ため。あわせてサビ外ゲートを厳格化: サビ外の総数はサビ内総数を
+  超えない、1フレーズに1つまで、クライマックス頭も phrase-head と同じ
+  thr93 の最強クラスのみ、曲頭 5 秒はフリックを置かない（同トライアルで
+  umi のサビ外過多と yoru のイントロ直後 2.995 秒の例への対策）。
+  ラスサビ全滅対策の改訂（NK-S006 試作の診断から）: 構造アンカー方式でも
+  写像適用率は 60〜70% にとどまり、『きずだらけのまま』ではラスサビの
+  フリックが全難易度 0 件になった（5アンカー中4つが「位置にノーツ無し」、
+  残る1つもサビ直前の一打との間隔競合で間引かれた）。対策として (1) 構造
+  位置に写らなかったアンカーを、同じフレーズ内の最も近い対象可ノーツへ
+  寄せて写すフォールバック（通常の寄せ幅は1拍＝16分×4まで、ノーツは
+  作らない。そのサビにフリックが1つも残らない場合に限り、フレーズ内の
+  最も近いノーツまで広げる救済つき）、(2) 間隔フィルタの優先順位化
+  （正確に写ったサビ内 ＞ 寄せたサビ内 ＞ サビ外）、を入れた。写像の
+  内訳はレポートの flickAnchorStats（サビごとに exact/fallback/rescue/
+  dropped）に出る。
+- V6-3 フリック先決め＋流れ整形・流れ検証（flick: True の曲だけ。OFF は無変更）:
+  オーナー指摘「フリックのある場所が気持ちよくない」への対策。従来は通常譜面を
+  作り切ってから既存ノーツを変換するだけだったため、フリック周りの配置が
+  タップ前提のままだった。v6-3 では (1) アンカーを難易度導出より前に確定し、
+  候補プールにピン留めして間引き・修復で落とさない、(2) 生成後にフリック
+  直前の窓（easy 2拍／normal 1.5拍／hard 1拍）のパターンノーツを間引いて
+  溜めを作り、直後の同レーンに回復ウィンドウ（300ms）を空ける整形、
+  (3) 届く難易度すべてで流れ（直前500msの密度・直後の同レーン間隔・
+  フリック間隔）を検査し、違反したフリックは ±1拍以内の落ち着いた適格
+  ノーツへずらす／無理なら落とす検証、を行う。フリック総数は SONGS の
+  flick_budget（任意の曲別メタ。未設定なら上限なし）を上限とし、超過分は優先度の低いものから
+  rank を上げて収める。移動・削除はレポートの flickFlowLog に理由付きで残る。
 
 v5 の変更点（根拠は docs/CHART-DESIGN.md の「譜面 v5」節、曲別方針は SONGS のメタデータ）:
 - V5-1 特徴量レイヤー: HPSS で打撃成分（ドラム）と持続成分を分け、持続成分の
@@ -144,8 +174,10 @@ HOP = 512
 #   audio: 音源（MP3。AAC/m4a はヘッドレス Chromium がデコードできないため使わない）
 #   fever: FEVER（サビ）区間 [開始秒, 終了秒) の列。歌詞字幕や波形の盛り上がりから決める
 #   chart_v5: True で v5（特徴量レイヤー＋フレーズ単位の主レイヤー選択）を使う
-#   flick: True で v6-2 のフリック配置を有効にする（既定 OFF。テンプレート側
-#     ランタイムはフリック未対応なので、対応済みの作品でのみ True にすること）
+#   flick: True で v6-2 のフリック配置を有効にする（既定 OFF。テンプレート
+#     ランタイムは v1.7.0 からフリック標準対応）
+#   flick_budget: v6-3 のフリック総数の上限（{"easy": n, "normal": n, "hard": n}。
+#     任意の曲別メタで、未設定なら上限なし。実績のある曲は現行実績を入れる）
 #   layer_bias: 主レイヤー選択の曲別バイアス（drums / melody / vocal への加算）
 #   chorus_layer: サビ（FEVER）で優先する主レイヤー
 #   chorus_bonus: サビの chorus_layer へのボーナス（既定 0.30）
@@ -172,6 +204,8 @@ SONGS = {
         # サビは歌に合わせてタッチできるよう主レイヤーをボーカルに寄せる（オーナー指示 2026-11-20）
         "chorus_layer": "vocal",
         "chorus_bonus": 0.5,
+        "flick": True,
+        "flick_budget": {"easy": 9, "normal": 12, "hard": 14},
     },
     "umi": {
         "title": "千葉の海に溶けてゆく",
@@ -184,6 +218,8 @@ SONGS = {
         # サビは歌に合わせてタッチできるよう主レイヤーをボーカルに寄せる（オーナー指示 2026-11-20）
         "chorus_layer": "vocal",
         "chorus_bonus": 0.5,
+        "flick": True,
+        "flick_budget": {"easy": 9, "normal": 17, "hard": 24},
     },
     "yoru": {
         "title": "繋いだ手と朱い夜",
@@ -197,6 +233,8 @@ SONGS = {
         # サビは歌に合わせてタッチできるよう主レイヤーをボーカルに寄せる（オーナー指示 2026-11-20）
         "chorus_layer": "vocal",
         "chorus_bonus": 0.5,
+        "flick": True,
+        "flick_budget": {"easy": 8, "normal": 11, "hard": 11},
     },
 }
 
@@ -1012,7 +1050,7 @@ def run_is_allowed(diff, run):
     )
 
 
-def repair_runs(id_sets, notes_by_id):
+def repair_runs(id_sets, notes_by_id, protected=frozenset()):
     """3連続ルールを全難易度で直す。落としたノーツは下位難易度からも落とす（入れ子を保つ）。"""
     order = ["hard", "normal", "easy"]
     for di, diff in enumerate(order):
@@ -1026,13 +1064,14 @@ def repair_runs(id_sets, notes_by_id):
                     break
             if bad is None:
                 break
-            mid = bad[len(bad) // 2]
+            pool = [n for n in bad if n["id"] not in protected] or list(bad)
+            mid = pool[len(pool) // 2]
             for lower in order[di:]:
                 id_sets[lower].discard(mid["id"])
     return id_sets
 
 
-def repair_side_runs(id_sets, notes_by_id, chord_ids):
+def repair_side_runs(id_sets, notes_by_id, chord_ids, protected=frozenset()):
     """両親指制約 C3a/C3b の違反を直す（check-two-thumb.py と同じ定義）。
 
     難易度ごとの部分列で数え直す必要がある（間引きで隣接関係が変わるため）。
@@ -1092,7 +1131,9 @@ def repair_side_runs(id_sets, notes_by_id, chord_ids):
                         break
             if target is None:
                 break
-            pool = [n for n in target if n["id"] not in chord_ids] or list(target)
+            pool = [
+                n for n in target if n["id"] not in chord_ids and n["id"] not in protected
+            ] or list(target)
             victim = pool[len(pool) // 2]
             for lower in order[di:]:
                 id_sets[lower].discard(victim["id"])
@@ -1640,21 +1681,37 @@ def process_song(song_id, meta, y, sr):
             drop.add(n["id"])
         notes = [n for n in notes if n["id"] not in drop]
 
-    # v6-2: フリック配置（曲別メタデータ flick: True の曲だけ。既定 OFF。
-    # テンプレート側ランタイムがフリック未対応のため、ON は対応済み作品だけ）
+    # v6-2: フリック配置（曲別メタデータ flick: True の曲だけ。既定 OFF）
     # 置き場所は音楽的な「決め」だけ（割合ありきの変換はしない）:
-    #   サビ内: 第1サビで決めた相対位置（拍オフセット）を全サビへ適用する。
-    #     位置の根拠は サビ入り／フレーズ頭／強拍アクセント（sub==0 かつ
-    #     strength 上位）／F0 の大きな跳躍（5半音以上）／フレーズ末。
-    #   サビ外: フレーズ頭の強アクセント／クライマックス頭／サビ直前の一打のみ。
+    #   サビ内: 第1サビで決めた「サビ内のフレーズ構造上の位置」を、全サビへ
+    #     各サビ自身のフレーズ構造に写像して適用する（標準化改訂で絶対拍
+    #     オフセット方式から変更）。位置の根拠は サビ入り／フレーズ頭／
+    #     強拍アクセント（sub==0 かつ strength 上位）／F0 の大きな跳躍
+    #     （5半音以上）／フレーズ末。
+    #   サビ外: フレーズ頭の強アクセント／クライマックス頭／サビ直前の一打
+    #     のみ。総数はサビ内を超えず、1フレーズ1つまで、曲頭5秒は置かない。
     # 適格性（単独ノーツ・長押しでない・同レーン前後 250ms 以上）と難易度別の
     # 最小間隔は NK-S006 v1.4.2 の実績どおり。難易度は間隔の厳しい順に
     # easy ⊂ normal ⊂ hard の入れ子で割り当てる（rank 0=easyから / 1=normalから /
     # 2=hardのみ）。
+    # ラスサビ全滅対策の改訂（NK-S006 試作の診断から）:
+    #   - フォールバック写像: 構造位置にノーツが無い／対象外で写らなかった
+    #     アンカーは、同じフレーズ内（サビ内フレーズ順が一致するフレーズ）の
+    #     最も近い対象可ノーツへ寄せて写す。通常の寄せ幅は
+    #     FLICK_FALLBACK_MAX_SUB（16分単位、4=1拍）まで。ただし、その
+    #     サビにフリックが1つも残らない場合は救済として、フレーズ内の
+    #     最も近いノーツまで範囲を広げる（ラスサビ全滅の再発防止）。
+    #     ノーツ自体は作らない。
+    #   - 間隔フィルタの優先順位: 正確に写ったサビ内フリックを最優先に
+    #     確定し、寄せたサビ内、サビ外の順に、確定済みの全体に対して
+    #     間隔を満たすものだけを通す。サビ直前の一打がラスサビの決めを
+    #     間隔競合で潰す事故を防ぐ。
     flick_report = []
+    anchor_stats = []
     if meta.get("flick"):
         FLICK_GAP_MS = {"easy": 4500, "normal": 2400, "hard": 1400}
         FLICK_FLOOR_MS = 1200
+        FLICK_FALLBACK_MAX_SUB = 4
         time_count = {}
         for n in notes:
             time_count[n["time_ms"]] = time_count.get(n["time_ms"], 0) + 1
@@ -1682,22 +1739,47 @@ def process_song(song_id, meta, y, sr):
             return -1
 
         phrase_head_bars = {p[0] for p in phrases if p}
-        selected = {}  # id -> (note, reason)
+        phrase_of_bar = {}
+        for p in phrases:
+            for b in p:
+                phrase_of_bar[b] = p
+        selected = {}  # id -> (note, reason, kind)  kind: exact/fallback/outside
 
-        # サビ内: 第1サビで相対位置（先頭拍からの拍オフセット＋sub）を決める
+        # サビ内: 第1サビで「サビ内のフレーズ構造上の位置」を決め、全サビへ
+        # 各サビ自身のフレーズ構造に写像して適用する（標準化改訂）。
+        # キー = (サビ内フレーズ順, フレーズ先頭拍からの拍オフセット, sub)。
+        # 旧方式（FEVER 開始点からの絶対拍オフセット）は、後続サビの長さや
+        # 入り拍が違うと対応位置がずれる／落ちる欠陥があった。
         seg_notes = {}
         for n in notes:
             si = seg_idx(n["time_ms"])
             if si >= 0:
                 seg_notes.setdefault(si, []).append(n)
+        phrase_start_beat = {id(p): min(p) * 4 for p in phrases if p}
+        seg_phrase_order = {}  # seg idx -> {phrase id: サビ内フレーズ順}
+        for si, lst in seg_notes.items():
+            starts = {}
+            for n in lst:
+                p = phrase_of_bar.get(n["bar"])
+                if p is not None:
+                    starts[id(p)] = phrase_start_beat[id(p)]
+            seg_phrase_order[si] = {
+                pid: i for i, (pid, _s) in enumerate(sorted(starts.items(), key=lambda kv: kv[1]))
+            }
+
+        def struct_key(si, n):
+            p = phrase_of_bar.get(n["bar"])
+            if p is None or id(p) not in seg_phrase_order.get(si, {}):
+                return None
+            return (
+                seg_phrase_order[si][id(p)],
+                n["beat"] - phrase_start_beat[id(p)],
+                n["sub"],
+            )
+
         if seg_notes.get(0):
             s0 = sorted(seg_notes[0], key=lambda n: (n["time_ms"], n["lane"]))
-            start_beat0 = min(n["beat"] for n in s0)
             # フレーズ末の決め判定用: 第1サビにかかるフレーズごとの最終ノーツ
-            phrase_of_bar = {}
-            for p in phrases:
-                for b in p:
-                    phrase_of_bar[b] = p
             last_note_id = {}
             for n in s0:
                 p = phrase_of_bar.get(n["bar"])
@@ -1706,7 +1788,7 @@ def process_song(song_id, meta, y, sr):
                     if k not in last_note_id or n["time_ms"] > last_note_id[k][0]:
                         last_note_id[k] = (n["time_ms"], n["id"])
             last_ids = {v[1] for v in last_note_id.values()}
-            offsets = {}
+            anchors = {}
             prev = None
             for n in s0:
                 reason = None
@@ -1727,23 +1809,98 @@ def process_song(song_id, meta, y, sr):
                 elif n["id"] in last_ids and n["strength"] >= thr[65]:
                     reason = "phrase-final"
                 if reason is not None and flick_eligible(n):
-                    offsets.setdefault((n["beat"] - start_beat0, n["sub"]), reason)
+                    k = struct_key(0, n)
+                    if k is not None:
+                        anchors.setdefault(k, reason)
                 prev = n
-            # 全サビへ同じ相対位置で適用（レーンは各サビの実体化どおり＝モチーフ連動）
+            # 全サビへ構造位置で適用（レーンは各サビの実体化どおり＝モチーフ連動）
+            # selected の値は (note, reason, kind)。kind は間隔フィルタの
+            # 優先順位用: "exact"（構造位置どおり）＞ "fallback"（寄せ）＞
+            # "outside"（サビ外）。
+            # 第1段: 構造位置そのものに一致する対象可ノーツへ写す。
+            satisfied = {si: set() for si in seg_notes}
             for si, lst in seg_notes.items():
-                sb = min(n["beat"] for n in lst)
                 for n in lst:
-                    key = (n["beat"] - sb, n["sub"])
-                    if key in offsets and flick_eligible(n):
-                        selected[n["id"]] = (n, offsets[key])
-        # サビ外の決め: フレーズ頭の強アクセント／クライマックス頭／サビ直前
+                    k = struct_key(si, n)
+                    if k is not None and k in anchors and flick_eligible(n):
+                        selected[n["id"]] = (n, anchors[k], "exact")
+                        satisfied[si].add(k)
+            # 第2段（フォールバック）: 写らなかったアンカーは、同じフレーズ内
+            # （そのサビでのフレーズ順がアンカーと一致するフレーズ）で最も
+            # 近い対象可ノーツへ寄せる。処理順はアンカーの目標位置順で
+            # 決定的にし、1つのノーツは1つのアンカーにしか使わない。
+            def fallback_note(si, k, max_sub):
+                target_sub = k[1] * 4 + k[2]
+                best = None
+                for n in seg_notes[si]:
+                    if n["id"] in selected:
+                        continue
+                    p = phrase_of_bar.get(n["bar"])
+                    if p is None or seg_phrase_order.get(si, {}).get(id(p)) != k[0]:
+                        continue
+                    if not flick_eligible(n):
+                        continue
+                    off_sub = (n["beat"] - phrase_start_beat[id(p)]) * 4 + n["sub"]
+                    d = abs(off_sub - target_sub)
+                    if max_sub is not None and d > max_sub:
+                        continue
+                    cand = (d, n["time_ms"], n["lane"])
+                    if best is None or cand < best[0]:
+                        best = (cand, n)
+                return best
+
+            for si in sorted(seg_notes):
+                if si == 0:
+                    continue
+                exact_n = len(satisfied[si])
+                fb_dists, rescue_dists = [], []
+                missing = [k for k in anchors if k not in satisfied[si]]
+                order = lambda k: (k[0], k[1] * 4 + k[2])
+                for k in sorted(missing, key=order):
+                    best = fallback_note(si, k, FLICK_FALLBACK_MAX_SUB)
+                    if best is not None:
+                        selected[best[1]["id"]] = (best[1], anchors[k], "fallback")
+                        satisfied[si].add(k)
+                        fb_dists.append(best[0][0])
+                # 救済: このサビにフリックが1つも残らない場合だけ、寄せ幅の
+                # 上限を外して（フレーズ内は維持）残りのアンカーも寄せる。
+                if not any(si == seg_idx(n["time_ms"]) for n, _r, _k in selected.values()):
+                    for k in sorted(
+                        (k for k in anchors if k not in satisfied[si]), key=order
+                    ):
+                        best = fallback_note(si, k, None)
+                        if best is not None:
+                            selected[best[1]["id"]] = (best[1], anchors[k], "fallback")
+                            satisfied[si].add(k)
+                            rescue_dists.append(best[0][0])
+                anchor_stats.append(
+                    {
+                        "seg": si,
+                        "targets": len(anchors),
+                        "exact": exact_n,
+                        "fallback": len(fb_dists),
+                        "fallbackDistsSub": fb_dists,
+                        "rescue": len(rescue_dists),
+                        "rescueDistsSub": rescue_dists,
+                        "dropped": len(anchors) - len(satisfied[si]),
+                    }
+                )
+        # サビ外の決め: フレーズ頭の強アクセント／クライマックス頭／サビ直前。
+        # 厳格化（標準化改訂）: 曲頭 FLICK_HEAD_GRACE_MS は置かない、ゲートは
+        # すべて最強クラス（thr93）、1フレーズに1つまで、総数はサビ内を超えない。
+        FLICK_HEAD_GRACE_MS = 5000
+        inside_count = len(selected)
+        outside_cands = []
+        used_phrases = set()
         for n in sorted(notes, key=lambda n: (n["time_ms"], n["lane"])):
             if seg_idx(n["time_ms"]) >= 0 or n["id"] in selected:
+                continue
+            if n["time_ms"] < FLICK_HEAD_GRACE_MS:
                 continue
             reason = None
             if n["bar"] in phrase_head_bars and n["sub"] == 0 and n["strength"] >= thr[93]:
                 reason = "accent"
-            elif n["bar"] in climax_bars and n["sub"] == 0 and n["strength"] >= thr[84]:
+            elif n["bar"] in climax_bars and n["sub"] == 0 and n["strength"] >= thr[93]:
                 reason = "accent"
             else:
                 # サビ直前の一打: そのノーツの直後（次のノーツまで）に FEVER が始まる
@@ -1754,19 +1911,52 @@ def process_song(song_id, meta, y, sr):
                 ):
                     reason = "pre-chorus"
             if reason is not None and flick_eligible(n):
-                selected[n["id"]] = (n, reason)
+                p = phrase_of_bar.get(n["bar"])
+                pk = id(p) if p is not None else None
+                if pk in used_phrases:
+                    continue
+                used_phrases.add(pk)
+                outside_cands.append((n, reason))
+        # サビ外はサビ内総数を超えない（強い順に残す）
+        if len(outside_cands) > inside_count:
+            outside_cands.sort(key=lambda nr: (-nr[0]["strength"], nr[0]["time_ms"]))
+            outside_cands = outside_cands[:inside_count]
+        for n, reason in outside_cands:
+            selected[n["id"]] = (n, reason, "outside")
         # 難易度別の最小間隔で入れ子に絞る（時刻順の貪欲。easy→normal→hard の順に
         # 厳しい間隔で間引くので、部分集合関係が保たれる）
         chosen = sorted(selected.values(), key=lambda nr: (nr[0]["time_ms"], nr[0]["lane"]))
 
         def gap_filter(items, gap_ms):
-            out, last = [], None
-            for item in items:
-                t = item[0]["time_ms"]
-                if last is None or t - last >= max(gap_ms, FLICK_FLOOR_MS):
-                    out.append(item)
+            # 優先順位つきフィルタ: kind の格（exact ＞ fallback ＞ outside）
+            # の順に確定していく。最上位の exact は同格どうし時刻順の貪欲、
+            # それ以外は確定済みの全フリック（前後両方向）に対して間隔を
+            # 満たすものだけを通す。時刻順の一括貪欲だと、先に現れる
+            # サビ外（サビ直前の一打など）が後のサビ内の決めを潰すし、
+            # 寄せたフリックが正確に写った決めを潰すこともある。
+            gap = max(gap_ms, FLICK_FLOOR_MS)
+            by_time = lambda nr: (nr[0]["time_ms"], nr[0]["lane"])
+            tiers = [
+                sorted((it for it in items if it[2] == kind), key=by_time)
+                for kind in ("exact", "fallback", "outside")
+            ]
+            out, times, last = [], [], None
+            for it in tiers[0]:
+                t = it[0]["time_ms"]
+                if last is None or t - last >= gap:
+                    out.append(it)
+                    times.append(t)
                     last = t
-            return out
+            for tier in tiers[1:]:
+                for it in tier:
+                    t = it[0]["time_ms"]
+                    k = bisect.bisect_left(times, t)
+                    if (k == 0 or t - times[k - 1] >= gap) and (
+                        k == len(times) or times[k] - t >= gap
+                    ):
+                        out.append(it)
+                        times.insert(k, t)
+            return sorted(out, key=by_time)
 
         hard_sel = gap_filter(chosen, FLICK_GAP_MS["hard"])
         normal_sel = gap_filter(hard_sel, FLICK_GAP_MS["normal"])
@@ -1779,7 +1969,7 @@ def process_song(song_id, meta, y, sr):
         for item in easy_sel:
             rank_of[item[0]["id"]] = 0
         for nid, rank in rank_of.items():
-            n, reason = selected[nid]
+            n, reason, _kind = selected[nid]
             n["flick_rank"] = rank
             flick_report.append(
                 {"time": n["time_ms"], "lane": n["lane"], "reason": reason, "rank": rank}
@@ -1806,7 +1996,7 @@ def process_song(song_id, meta, y, sr):
         elif n["sub"] % 2 == 0:
             normal_ids.add(n["id"])
 
-    def thin(ids, cap, min_gap, fever_w=1.2):
+    def thin(ids, cap, min_gap, fever_w=1.2, pinned=frozenset()):
         """レーンごとに強さ順の列を持ち、往復で均等に拾って間引く。
 
         候補プール自体が偏っていても分布が 18〜32% に収まるよう、総数は
@@ -1831,6 +2021,15 @@ def process_song(song_id, meta, y, sr):
         kept_times = []
         lane_kept = [0, 0, 0, 0]
         ptr = {l: 0 for l in range(4)}
+        # v6-3: ピン留めノーツ（フリックのアンカー）は間引きで落とさず先に確定する
+        for n in sorted(
+            (notes_by_id[i] for i in ids if i in pinned),
+            key=lambda n: (n["time_ms"], n["lane"]),
+        ):
+            kept.append(n)
+            kept_times.append(n["time_ms"])
+            lane_kept[n["lane"]] += 1
+        kept_ids = {n["id"] for n in kept}
 
         def gap_ok(n):
             return all(t == n["time_ms"] or abs(n["time_ms"] - t) >= min_gap for t in kept_times)
@@ -1844,9 +2043,12 @@ def process_song(song_id, meta, y, sr):
                 while ptr[l] < len(by_lane[l]):
                     n = by_lane[l][ptr[l]]
                     ptr[l] += 1
+                    if n["id"] in kept_ids:
+                        continue
                     if gap_ok(n):
                         kept.append(n)
                         kept_times.append(n["time_ms"])
+                        kept_ids.add(n["id"])
                         lane_kept[l] += 1
                         progress = True
                         break
@@ -2029,20 +2231,32 @@ def process_song(song_id, meta, y, sr):
             ids.add(n["id"])
         return ids
 
+    # v6-3: フリックのアンカーは難易度導出でピン留めし、修復でも優先的に残す
+    flick_pin = {"normal": set(), "easy": set()}
+    flick_protected = set()
+    if meta.get("flick"):
+        for n in notes:
+            r = n.get("flick_rank")
+            if r is not None:
+                flick_protected.add(n["id"])
+                if r <= 1:
+                    flick_pin["normal"].add(n["id"])
+                if r <= 0:
+                    flick_pin["easy"].add(n["id"])
     normal_pool = set(normal_ids)
-    normal_ids, normal_target = thin(normal_ids, NORMAL_CAP, 150)
+    normal_ids, normal_target = thin(normal_ids, NORMAL_CAP, 150, pinned=flick_pin["normal"])
     easy_pre_thin = {i for i in normal_ids if notes_by_id[i]["sub"] == 0 and notes_by_id[i]["kind"] != "chord"}
     easy_ids = set(easy_pre_thin)
     # easy は拍位置のみで候補が少なく、サビが16分中心になるとサビの取り分が
     # 構造的に減るため、FEVER 優先の重みを normal より強める（2026-11-20）
-    easy_ids, easy_target = thin(easy_ids, EASY_CAP, 260, fever_w=1.6)
+    easy_ids, easy_target = thin(easy_ids, EASY_CAP, 260, fever_w=1.6, pinned=flick_pin["easy"])
     id_sets = {"hard": hard_ids, "normal": normal_ids, "easy": easy_ids}
     # 同一レーン修復と両親指修復は、片方の「落とす」が他方の違反（連の接続）を
     # 作ることがあるので、どちらも動かなくなるまで交互に回す（落とすだけなので収束する）
     for _ in range(50):
         before = {d: len(s) for d, s in id_sets.items()}
-        id_sets = repair_runs(id_sets, notes_by_id)
-        id_sets = repair_side_runs(id_sets, notes_by_id, chord_ids)
+        id_sets = repair_runs(id_sets, notes_by_id, protected=flick_protected)
+        id_sets = repair_side_runs(id_sets, notes_by_id, chord_ids, protected=flick_protected)
         if all(len(id_sets[d]) == before[d] for d in before):
             break
     else:
@@ -2101,12 +2315,337 @@ def process_song(song_id, meta, y, sr):
             break
         for _ in range(50):
             before_r = {d: len(s) for d, s in id_sets.items()}
-            id_sets = repair_runs(id_sets, notes_by_id)
-            id_sets = repair_side_runs(id_sets, notes_by_id, chord_ids)
+            id_sets = repair_runs(id_sets, notes_by_id, protected=flick_protected)
+            id_sets = repair_side_runs(id_sets, notes_by_id, chord_ids, protected=flick_protected)
             if all(len(id_sets[d]) == before_r[d] for d in before_r):
                 break
         else:
             raise AssertionError(f"{song_id}: 密度下限ガード後の修復が収束しない")
+
+    # v6-3: フリックの流れ整形と流れ検証（flick: True の曲だけ。OFF の曲は無変更）
+    # 整形: フリック直前の窓ではパターンノーツを間引いて「溜め」を作り、
+    #   フリック直後の同レーンには回復ウィンドウを空ける。落とす集合は
+    #   hard ⊆ normal ⊆ easy の順に積み増し、入れ子を保つ。
+    # 検証: 届く難易度すべてで流れを検査し、引っかかったフリックは
+    #   ±1拍以内の落ち着いた適格ノーツへずらす。無理なら落とす。
+    # 上限: SONGS の flick_budget（任意の曲別メタ）を超える場合は、
+    #   優先度の低いフリックから rank を上げて（最終的には外して）収める。
+    flick_final_report = []
+    flow_log = []
+    shape_stats = {"preDropped": 0, "postDropped": 0}
+    if meta.get("flick"):
+        FLICK_PRE_WINDOW_BEATS = {"easy": 2.0, "normal": 1.5, "hard": 1.0}
+        FLICK_PRE_DENSITY_MS = 500
+        FLICK_PRE_DENSITY_MAX = {"easy": 1, "normal": 2, "hard": 3}
+        FLICK_RECOVERY_MS = 300
+        FLICK_SAME_LANE_MS = 250
+        rank_max_of = {"easy": 0, "normal": 1, "hard": 2}
+        flick_meta = {nid: (rs, kd) for nid, (_n, rs, kd) in selected.items()}
+        flick_notes = {n["id"]: n for n in notes if n.get("flick_rank") is not None}
+
+        def delivered(diff):
+            rm = rank_max_of[diff]
+            return sorted(
+                (
+                    notes_by_id[i]
+                    for i in id_sets[diff]
+                    if notes_by_id[i].get("flick_rank") is not None
+                    and notes_by_id[i]["flick_rank"] <= rm
+                ),
+                key=lambda n: (n["time_ms"], n["lane"]),
+            )
+
+        # ---- 整形（入れ子を保つ階層落とし） ----
+        # テンプレート標準化時の追加ガード: 落としでレーン割合が検証範囲
+        # （LANE_MIN_SHARE〜LANE_MAX_SHARE）から外れる場合はそのノーツを落とさない。
+        # ノーツ総数の少ない小さい譜面では、数個の落としでも割合が跳ねるため
+        # （NK-S006 の実曲では発動しなかったが、テンプレートの仮曲で再現した）。
+        lane_counts = {}
+        lane_totals = {}
+        for d in ("easy", "normal", "hard"):
+            c = [0, 0, 0, 0]
+            for i in id_sets[d]:
+                c[notes_by_id[i]["lane"]] += 1
+            lane_counts[d] = c
+            lane_totals[d] = len(id_sets[d])
+
+        def drop_keeps_lane_balance(n):
+            for d in ("easy", "normal", "hard"):
+                if n["id"] not in id_sets[d]:
+                    continue
+                total = lane_totals[d] - 1
+                if total <= 0:
+                    return False
+                for lane in range(4):
+                    cnt = lane_counts[d][lane] - (1 if lane == n["lane"] else 0)
+                    share = cnt / total
+                    if share < LANE_MIN_SHARE or share > LANE_MAX_SHARE:
+                        return False
+            return True
+
+        def apply_drop(n):
+            for d in ("easy", "normal", "hard"):
+                if n["id"] in id_sets[d]:
+                    lane_counts[d][n["lane"]] -= 1
+                    lane_totals[d] -= 1
+
+        drop_acc = set()
+        for diff in ("hard", "normal", "easy"):
+            win_ms = FLICK_PRE_WINDOW_BEATS[diff] * period * 1000
+            for fn in delivered(diff):
+                t = fn["time_ms"]
+                for n in notes:
+                    nid = n["id"]
+                    if nid not in id_sets[diff] or nid in flick_notes or nid in drop_acc:
+                        continue
+                    if (
+                        t - win_ms <= n["time_ms"] < t
+                        and n["kind"] == "pattern"
+                        and n["hold_ms"] == 0
+                    ):
+                        if not drop_keeps_lane_balance(n):
+                            continue
+                        drop_acc.add(nid)
+                        apply_drop(n)
+                        shape_stats["preDropped"] += 1
+                    elif n["lane"] == fn["lane"] and t < n["time_ms"] <= t + FLICK_RECOVERY_MS:
+                        if not drop_keeps_lane_balance(n):
+                            continue
+                        drop_acc.add(nid)
+                        apply_drop(n)
+                        shape_stats["postDropped"] += 1
+            id_sets[diff] -= drop_acc
+
+        # 整形の落としで生じた同一レーン連・両親指違反を修復し直す
+        # （ノーツを落とすと同レーンが隣接して連ができるため。落とすだけ
+        # なので収束する。フリックは protected で優先的に残す）
+        for _ in range(50):
+            before = {d: len(s) for d, s in id_sets.items()}
+            id_sets = repair_runs(id_sets, notes_by_id, protected=flick_protected)
+            id_sets = repair_side_runs(
+                id_sets, notes_by_id, chord_ids, protected=flick_protected
+            )
+            if all(len(id_sets[d]) == before[d] for d in before):
+                break
+        else:
+            raise AssertionError(f"{song_id}: 整形後の修復が収束しない")
+
+        # ---- 流れ検証 ----
+        def flick_times_in(diff, exclude_id=None):
+            rm = rank_max_of[diff]
+            return sorted(
+                notes_by_id[i]["time_ms"]
+                for i in id_sets[diff]
+                if i != exclude_id
+                and notes_by_id[i].get("flick_rank") is not None
+                and notes_by_id[i]["flick_rank"] <= rm
+            )
+
+        def flow_problems(diff, cand, other_times):
+            ids = id_sets[diff]
+            t = cand["time_ms"]
+            probs = []
+            pre = sum(
+                1
+                for i in ids
+                if t - FLICK_PRE_DENSITY_MS <= notes_by_id[i]["time_ms"] < t
+            )
+            if pre > FLICK_PRE_DENSITY_MAX[diff]:
+                probs.append(f"pre-density:{pre}>{FLICK_PRE_DENSITY_MAX[diff]}")
+            lane_after = [
+                notes_by_id[i]["time_ms"]
+                for i in ids
+                if notes_by_id[i]["lane"] == cand["lane"] and notes_by_id[i]["time_ms"] > t
+            ]
+            if lane_after and min(lane_after) - t < FLICK_RECOVERY_MS:
+                probs.append(f"post-lane:{min(lane_after) - t}<{FLICK_RECOVERY_MS}")
+            for ot in other_times:
+                if abs(ot - t) < FLICK_GAP_MS[diff]:
+                    probs.append(f"flick-gap:{abs(ot - t)}<{FLICK_GAP_MS[diff]}")
+                    break
+            return probs
+
+        def shift_candidates(fn, rank):
+            t0 = fn["time_ms"]
+            hard_ids = id_sets["hard"]
+            time_count_h = {}
+            for i in hard_ids:
+                tt = notes_by_id[i]["time_ms"]
+                time_count_h[tt] = time_count_h.get(tt, 0) + 1
+            lane_times_h = {}
+            for i in hard_ids:
+                lane_times_h.setdefault(notes_by_id[i]["lane"], []).append(
+                    notes_by_id[i]["time_ms"]
+                )
+            out = []
+            for cn in notes:
+                if cn["id"] == fn["id"] or cn.get("flick_rank") is not None:
+                    continue
+                if cn["id"] not in hard_ids or cn["hold_ms"] > 0:
+                    continue
+                if abs(cn["time_ms"] - t0) > period * 1000:
+                    continue
+                if time_count_h[cn["time_ms"]] > 1:
+                    continue
+                near = [
+                    x
+                    for x in lane_times_h[cn["lane"]]
+                    if abs(x - cn["time_ms"]) < FLICK_SAME_LANE_MS
+                ]
+                if len(near) > 1:
+                    continue
+                saved = fn["flick_rank"]
+                fn["flick_rank"] = None
+                ok = True
+                score = 0
+                for diff in ("easy", "normal", "hard"):
+                    if rank > rank_max_of[diff] or cn["id"] not in id_sets[diff]:
+                        continue
+                    pr = flow_problems(diff, cn, flick_times_in(diff, exclude_id=fn["id"]))
+                    if pr:
+                        ok = False
+                        break
+                    score += sum(
+                        1
+                        for i in id_sets[diff]
+                        if cn["time_ms"] - FLICK_PRE_DENSITY_MS
+                        <= notes_by_id[i]["time_ms"]
+                        < cn["time_ms"]
+                    )
+                fn["flick_rank"] = saved
+                if ok:
+                    out.append((score, abs(cn["time_ms"] - t0), cn["time_ms"], cn["lane"], cn))
+            out.sort(key=lambda c: (c[0], c[1], c[2], c[3]))
+            return out
+
+        for fn in sorted(flick_notes.values(), key=lambda n: (n["time_ms"], n["lane"])):
+            rank = fn.get("flick_rank")
+            if rank is None:
+                continue
+            diffs_in = [
+                d
+                for d in ("easy", "normal", "hard")
+                if rank <= rank_max_of[d] and fn["id"] in id_sets[d]
+            ]
+            problems = {}
+            for d in diffs_in:
+                pr = flow_problems(d, fn, flick_times_in(d, exclude_id=fn["id"]))
+                if pr:
+                    problems[d] = pr
+            if diffs_in and not problems:
+                continue
+            reason0 = flick_meta.get(fn["id"], ("?", "?"))[0]
+            cands = shift_candidates(fn, rank)
+            if cands:
+                cn = cands[0][4]
+                fn["flick_rank"] = None
+                cn["flick_rank"] = rank
+                flick_meta[cn["id"]] = flick_meta.get(fn["id"], ("?", "?"))
+                flick_notes[cn["id"]] = cn
+                del flick_notes[fn["id"]]
+                flow_log.append(
+                    {
+                        "action": "replace" if not diffs_in else "shift",
+                        "from": fn["time_ms"],
+                        "fromLane": fn["lane"],
+                        "to": cn["time_ms"],
+                        "toLane": cn["lane"],
+                        "rank": rank,
+                        "reason": reason0,
+                        "problems": problems,
+                    }
+                )
+            else:
+                fn["flick_rank"] = None
+                del flick_notes[fn["id"]]
+                flow_log.append(
+                    {
+                        "action": "lost" if not diffs_in else "drop",
+                        "from": fn["time_ms"],
+                        "fromLane": fn["lane"],
+                        "rank": rank,
+                        "reason": reason0,
+                        "problems": problems,
+                    }
+                )
+
+        # ---- 上限（flick_budget）への収納: rank を上げる／外す ----
+        budget = meta.get("flick_budget") or {}
+        kind_rank = {"exact": 2, "fallback": 1, "outside": 0}
+        reason_rank = {
+            "chorus-entry": 5,
+            "phrase-head": 4,
+            "accent": 3,
+            "f0-jump": 2,
+            "phrase-final": 1,
+            "pre-chorus": 0,
+        }
+
+        def keep_key(n):
+            rs, kd = flick_meta.get(n["id"], ("?", "?"))
+            return (
+                kind_rank.get(kd, 0),
+                reason_rank.get(rs, 0),
+                n["strength"],
+                -n["time_ms"],
+            )
+
+        for diff in ("easy", "normal", "hard"):
+            cap = budget.get(diff)
+            if cap is None:
+                continue
+            rm = rank_max_of[diff]
+            while True:
+                cur = [
+                    n
+                    for n in flick_notes.values()
+                    if n.get("flick_rank") is not None
+                    and n["flick_rank"] <= rm
+                    and n["id"] in id_sets[diff]
+                ]
+                if len(cur) <= cap:
+                    break
+                cur.sort(key=keep_key)
+                victim = cur[0]
+                if diff == "hard":
+                    victim["flick_rank"] = None
+                    del flick_notes[victim["id"]]
+                    flow_log.append(
+                        {
+                            "action": "budget-remove",
+                            "from": victim["time_ms"],
+                            "fromLane": victim["lane"],
+                            "rank": rm,
+                            "reason": flick_meta.get(victim["id"], ("?", "?"))[0],
+                            "problems": {"budget": diff},
+                        }
+                    )
+                else:
+                    old_rank = victim["flick_rank"]
+                    victim["flick_rank"] = rm + 1
+                    flow_log.append(
+                        {
+                            "action": "budget-raise",
+                            "from": victim["time_ms"],
+                            "fromLane": victim["lane"],
+                            "rank": old_rank,
+                            "reason": flick_meta.get(victim["id"], ("?", "?"))[0],
+                            "problems": {"budget": diff},
+                        }
+                    )
+        flick_final_report = sorted(
+            (
+                {
+                    "time": n["time_ms"],
+                    "lane": n["lane"],
+                    "reason": flick_meta.get(n["id"], ("?", "?"))[0],
+                    "rank": n["flick_rank"],
+                }
+                for n in flick_notes.values()
+                if n.get("flick_rank") is not None
+            ),
+            key=lambda r: (r["time"], r["lane"]),
+        )
 
     def final_notes(diff, ids):
         seq = sorted((notes_by_id[i] for i in ids), key=lambda n: (n["time_ms"], n["lane"]))
@@ -2199,6 +2738,10 @@ def process_song(song_id, meta, y, sr):
         "motifReuse": motif_report,
         "motifSimThr": round(motif_sim_thr, 3) if v5 else None,
         "flickPositions": flick_report,
+        "flickAnchorStats": anchor_stats,
+        "flickPositionsFinal": flick_final_report,
+        "flickFlowLog": flow_log,
+        "flickShapeStats": shape_stats,
     }
     print(f"{song_id}: BPM={bpm:.2f} -> {int(round(bpm))} counts={counts}")
     print(f"  diffs={json.dumps(rep['diffs'], ensure_ascii=False)} lanes={rep['lanes']}")
