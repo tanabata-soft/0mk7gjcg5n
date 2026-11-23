@@ -1,17 +1,12 @@
-// 曲と譜面のデータ（正本は src/game/data/charts.json。scripts/generate-charts.py が音源解析で生成する）。
-// 歌詞は src/game/data/lyrics.json（曲 ID → 行の列。scripts/gen-game-lyrics.mjs が
-// CD 側の検証済み歌詞同期データ src/album/sync.ts から変換して生成する）。
-// 曲の音源は CD 側の src/album/assets/audio/track0N.mp4 から音声だけを書き出した MP3
-// （src/game/assets/track0N.mp3）。ジャケットは CD 側の曲ジャケット（1024×1024）のコピー。
+// 曲と譜面のデータを組み立てる（エンジン側）。
+// 曲リストそのものは作品データの src/game/songs.ts（SONG_DEFS）が正本。
+// 譜面は src/game/data/charts.json（scripts/generate-charts.py が音源解析で生成）、
+// 歌詞は src/game/data/lyrics.json（scripts/gen-game-lyrics.mjs が CD 側の
+// 検証済み歌詞同期データ src/album/sync.ts から変換して生成）。
 import type { LyricLine, SongData, SongId } from './logic';
 import raw from './data/charts.json';
 import lyricsRaw from './data/lyrics.json';
-import keiyoAudio from './assets/track01.mp3';
-import keiyoJacket from './assets/track01.jpg';
-import umiAudio from './assets/track02.mp3';
-import umiJacket from './assets/track02.jpg';
-import yoruAudio from './assets/track03.mp3';
-import yoruJacket from './assets/track03.jpg';
+import { SONG_DEFS } from './songs';
 
 export interface SongEntry {
   id: SongId;
@@ -23,23 +18,23 @@ export interface SongEntry {
   /**
    * ジャケット絵の四辺に焼き込まれた紙枠の幅（実画像ピクセル。絵は 1024×1024）。
    * 演奏画面の背景では、この枠を除いた内側の絵だけを幅いっぱいの正方形で敷く
-   * （枠をなくして背景になじませる、オーナー決定 2026-11-20）。
-   * メニューのカルーセルや CD 側のジャケット表示には使わない（枠も含めて見せる）。
-   * 実測（2026-11-20）: keiyo 14 / umi 32 / yoru 0（枠なし）
+   * （枠をなくして背景になじませる）。メニューのカルーセルや CD 側のジャケット
+   * 表示には使わない（枠も含めて見せる）。作品ごとの値は songs.ts に置く。
    */
   frameInset: number;
   /** カルーセルでのジャケットの寄せ（CSS の object-position）。未指定は中央 */
   slidePosition?: string;
-  /** ボーナストラックなら true（スライドに金の BONUS チップが出る） */
-  bonus?: boolean;
   /**
-   * 曲のテーマ色。NK-S003 のゲーム画面はピンク基調で固定（game.css が
-   * --primary: #ff4d8d を決めている）ため、全曲とも同じ値を入れて
-   * applyAccent() が今の見た目をそのまま保つようにする
+   * 曲のテーマ色（#rrggbb）。メニューの枠・光・ボタンなどのアクセント色に使う
+   * （選曲に合わせて切り替わる。オーナー決定 2026-11-20 のパターン3）。
+   * ジャケットから抜き出した代表色を、視認性のために明るくしてある。
+   * 作品ごとの値は songs.ts に置く。
    */
   accent: string;
-  /** accent の RGB 成分（"r g b"、CSS の rgb(var(--song-accent-rgb) / a) 用） */
+  /** accent の RGB 三つ組み（CSS の rgb(var(--song-accent-rgb) / α) 用） */
   accentRgb: string;
+  /** ボーナストラックか（CD 側 tracks.ts の bonus と一致させる。スライドに BONUS チップが出る） */
+  bonus: boolean;
   /** 収録アルバム名（表示用） */
   album: string;
   genre: string;
@@ -50,46 +45,24 @@ export interface SongEntry {
 const songs = raw as unknown as Record<SongId, SongData>;
 const lyrics = lyricsRaw as unknown as Record<SongId, LyricLine[]>;
 
-export const SONGS: SongEntry[] = [
-  {
-    id: 'keiyo',
-    data: songs.keiyo,
-    lyrics: lyrics.keiyo ?? [],
-    audioUrl: keiyoAudio,
-    jacketUrl: keiyoJacket,
-    frameInset: 14,
-    slidePosition: '80% 50%',
-    accent: '#ff4d8d',
-    accentRgb: '255 77 141',
-    album: 'NK-S003 京葉線の午後',
-    genre: 'Seaside Pop',
-  },
-  {
-    id: 'umi',
-    data: songs.umi,
-    lyrics: lyrics.umi ?? [],
-    audioUrl: umiAudio,
-    jacketUrl: umiJacket,
-    frameInset: 32,
-    slidePosition: '90% 50%',
-    accent: '#ff4d8d',
-    accentRgb: '255 77 141',
-    album: 'NK-S003 京葉線の午後',
-    genre: 'Seafoam Ballad',
-  },
-  {
-    id: 'yoru',
-    data: songs.yoru,
-    lyrics: lyrics.yoru ?? [],
-    audioUrl: yoruAudio,
-    jacketUrl: yoruJacket,
-    frameInset: 0,
-    bonus: true,
-    accent: '#ff4d8d',
-    accentRgb: '255 77 141',
-    album: 'NK-S003 京葉線の午後',
-    genre: 'Festival Pop',
-  },
-];
+const accentRgbOf = (hex: string): string => {
+  const n = parseInt(hex.slice(1), 16);
+  return `${(n >> 16) & 255} ${(n >> 8) & 255} ${n & 255}`;
+};
+
+export const SONGS: SongEntry[] = SONG_DEFS.map((def) => ({
+  id: def.id,
+  data: songs[def.id],
+  lyrics: lyrics[def.id] ?? [],
+  audioUrl: def.audioUrl,
+  jacketUrl: def.jacketUrl,
+  frameInset: def.frameInset,
+  slidePosition: def.slidePosition,
+  accent: def.accent,
+  accentRgb: accentRgbOf(def.accent),
+  bonus: def.bonus ?? false,
+  album: def.album,
+  genre: def.genre,
+}));
 
 export const songById = (id: SongId): SongEntry => SONGS.find((s) => s.id === id) ?? SONGS[0];

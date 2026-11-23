@@ -215,6 +215,20 @@ test('表ジャケットからもインストール方法を開ける', async ({
   await expect(dialog).toBeHidden();
 });
 
+test('インストールダイアログは画面中央に出る', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.goto('/');
+  await page.locator('#install-open-cover').click();
+  const dialog = page.locator('#install-dialog');
+  await expect(dialog).toBeVisible();
+  const box = await dialog.boundingBox();
+  expect(box).not.toBeNull();
+  const cx = box!.x + box!.width / 2;
+  const cy = box!.y + box!.height / 2;
+  expect(Math.abs(cx - 640)).toBeLessThan(2);
+  expect(Math.abs(cy - 400)).toBeLessThan(2);
+});
+
 test('裏面の曲目は表示専用で、タップしても再生画面へは行かない', async ({ page }) => {
   await page.goto('/');
   await page.locator('#flip').click();
