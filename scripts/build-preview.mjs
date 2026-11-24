@@ -20,10 +20,10 @@ try {
   execFileSync('ffmpeg', ['-version'], { stdio: 'ignore' });
   const { mkdirSync } = await import('node:fs');
   mkdirSync(AUDIO_CACHE, { recursive: true });
-  for (const f of readdirSync(join('src', 'album', 'assets', 'audio')).filter((f) => f.endsWith('.mp4'))) {
+  for (const f of readdirSync(join('src', 'album', 'assets', 'audio')).filter((f) => f.endsWith('.mp3'))) {
     const out = join(AUDIO_CACHE, f);
     if (!existsSync(out)) {
-      execFileSync('ffmpeg', ['-y', '-v', 'error', '-i', join('src', 'album', 'assets', 'audio', f), '-vn', '-c:a', 'aac', '-b:a', '96k', out]);
+      execFileSync('ffmpeg', ['-y', '-v', 'error', '-i', join('src', 'album', 'assets', 'audio', f), '-vn', '-c:a', 'libmp3lame', '-b:a', '96k', out]);
     }
   }
   mkdirSync(GAME_AUDIO_CACHE, { recursive: true });
@@ -61,7 +61,7 @@ await build({
       enforce: 'pre',
       resolveId: (id) => {
         const clean = id.split('?')[0];
-        if (clean.endsWith('.mp4')) {
+        if (clean.endsWith('.mp3') && clean.includes('/album/assets/')) {
           const swapped = join(process.cwd(), AUDIO_CACHE, basename(clean));
           return existsSync(swapped) ? swapped : null;
         }
